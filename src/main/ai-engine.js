@@ -236,7 +236,23 @@ class AIEngine {
   }
 
   async _initClient() {
-    const apiKey = this.store.get('apiKey') || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
+    let apiKey = this.store.get('apiKey') || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
+    
+    if (!apiKey) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const envPath = path.join(__dirname, '..', '..', '.env.example');
+        if (fs.existsSync(envPath)) {
+          const envContent = fs.readFileSync(envPath, 'utf-8');
+          const match = envContent.match(/DEEPSEEK_API_KEY=([^\r\n]+)/);
+          if (match && match[1]) apiKey = match[1].trim();
+        }
+      } catch (e) {
+        console.error('Failed to read .env.example:', e);
+      }
+    }
+
     const baseURL = this.store.get('baseURL', AI_CONFIG.BASE_URL);
     if (['deepseek-reasoner', 'deepseek-v4-flash'].includes(this.store.get('model'))) {
       this.store.set('model', AI_CONFIG.MODEL);

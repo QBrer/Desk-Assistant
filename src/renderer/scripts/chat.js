@@ -89,6 +89,14 @@ class ChatManager {
     const text = this.input?.value?.trim();
     if (!text) return;
 
+    this.sendText(text);
+  }
+
+  sendText(text) {
+    if (this.isStreaming || !text?.trim()) return;
+
+    text = text.trim();
+
     // 渲染用户消息
     this.addUserMessage(text);
 
@@ -188,6 +196,7 @@ class ChatManager {
    * 结束流式输出
    */
   _endStream() {
+    const finalText = this.streamContent;
     if (this.currentStreamElement) {
       const textEl = this.currentStreamElement.querySelector('.message-text');
       if (textEl) {
@@ -206,6 +215,7 @@ class ChatManager {
 
     // 角色回到待机
     window.character?.setState('idle');
+    window.voiceManager?.speak(finalText);
     this._scrollToBottom();
   }
 

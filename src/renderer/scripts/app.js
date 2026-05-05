@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
   window.chatManager = new ChatManager();
   console.log('[LAIN] Chat manager: OK');
 
+  window.voiceManager = new VoiceManager(window.chatManager);
+  console.log('[LAIN] Voice manager: OK');
+
   // 设置窗口控制
   setupWindowControls();
 

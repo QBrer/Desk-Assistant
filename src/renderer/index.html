@@ -81,6 +81,18 @@
       <div class="chat-input-section">
         <div class="input-wrapper">
           <textarea id="chat-input" class="chat-input" placeholder="在这里输入消息..." rows="1"></textarea>
+          <button class="voice-btn" id="voice-btn" title="语音输入" aria-label="语音输入">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="voice-btn voice-speak-btn active" id="voice-speak-btn" title="朗读回复" aria-label="朗读回复">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M4 9v6h4l5 4V5L8 9H4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
           <button class="send-btn" id="send-btn" title="发送">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -98,6 +110,7 @@
   <!-- Scripts -->
   <script src="scripts/effects.js"></script>
   <script src="scripts/character.js"></script>
+  <script src="scripts/voice.js"></script>
   <script src="scripts/chat.js"></script>
   <script src="scripts/app.js"></script>
 </body>

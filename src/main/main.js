@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, shell, session } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 const { WINDOW_CONFIG, IPC_CHANNELS } = require('../shared/constants');
@@ -114,6 +114,12 @@ function createTray() {
   });
 }
 
+function setupMediaPermissions() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'media');
+  });
+}
+
 function setupIPC() {
   // 窗口控制
   ipcMain.on(IPC_CHANNELS.WIN_MINIMIZE, () => {
@@ -181,6 +187,7 @@ function registerShortcuts() {
 app.whenReady().then(() => {
   systemControl = new SystemControl();
 
+  setupMediaPermissions();
   createWindow();
   createTray();
 
