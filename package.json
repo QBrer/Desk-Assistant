@@ -1,0 +1,25 @@
+{
+  "name": "lain-desktop-assistant",
+  "version": "1.0.0",
+  "description": "Desktop AI Assistant — Lain Iwakura",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": [
+    "desktop-assistant",
+    "ai",
+    "electron",
+    "lain"
+  ],
+  "author": "QBrer",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "openai": "^4.73.0"
+  }
+}

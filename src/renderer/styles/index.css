@@ -1,0 +1,202 @@
+/* ============================================
+   玲音桌面助手 — 设计系统
+   ============================================ */
+
+/* ---------- CSS 变量 / 设计 Tokens ---------- */
+:root {
+  /* 主色调 — 赛博朋克 */
+  --bg-primary: rgba(8, 8, 12, 0.92);
+  --bg-secondary: rgba(15, 15, 22, 0.85);
+  --bg-glass: rgba(20, 20, 35, 0.6);
+
+  /* 霓虹色 */
+  --neon-green: #00ff41;
+  --neon-cyan: #00d4ff;
+  --neon-purple: #8b00ff;
+  --neon-pink: #ff0066;
+  --neon-red: #ff0040;
+
+  /* 文字色 */
+  --text-primary: #e0e0e0;
+  --text-secondary: #8a8a9a;
+  --text-accent: var(--neon-green);
+  --text-dim: #4a4a5a;
+
+  /* 边框 */
+  --border-glow: rgba(0, 255, 65, 0.15);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* 字体 */
+  --font-mono: 'Share Tech Mono', 'Consolas', monospace;
+  --font-display: 'Rajdhani', 'Noto Sans SC', sans-serif;
+  --font-body: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+
+  /* 尺寸 */
+  --titlebar-height: 32px;
+  --input-height: 48px;
+  --border-radius: 8px;
+
+  /* 动画 */
+  --transition-fast: 150ms ease;
+  --transition-normal: 300ms ease;
+  --transition-slow: 600ms ease;
+}
+
+/* ---------- 全局重置 ---------- */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neon-green);
+  border-radius: 2px;
+  opacity: 0.3;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.6;
+}
+
+/* ---------- 主容器 ---------- */
+.app-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-glow);
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 0 30px rgba(0, 255, 65, 0.05),
+    0 0 60px rgba(0, 0, 0, 0.5),
+    inset 0 0 80px rgba(0, 0, 0, 0.3);
+}
+
+/* 外边框发光效果 */
+.app-container::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 13px;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 255, 65, 0.3),
+    rgba(0, 212, 255, 0.1),
+    rgba(139, 0, 255, 0.2),
+    rgba(0, 255, 65, 0.1)
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: borderPulse 4s ease-in-out infinite;
+}
+
+@keyframes borderPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ---------- 标题栏 ---------- */
+.titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  -webkit-app-region: drag;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.titlebar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  box-shadow: 0 0 6px var(--neon-green);
+  animation: statusBlink 3s ease-in-out infinite;
+}
+
+@keyframes statusBlink {
+  0%, 90%, 100% { opacity: 1; }
+  95% { opacity: 0.3; }
+}
+
+.status-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.titlebar-actions {
+  display: flex;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: var(--transition-fast);
+}
+
+.titlebar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.titlebar-btn.btn-close:hover {
+  background: rgba(255, 0, 64, 0.3);
+  color: var(--neon-red);
+}
+
+/* ---------- 工具类 ---------- */
+.hidden {
+  display: none !important;
+}

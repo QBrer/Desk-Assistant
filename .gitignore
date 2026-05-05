@@ -1,0 +1,17 @@
+node_modules/
+.vscode/
+dist/
+build/
+out/
+coverage/
+
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+lain_workspace/*
+!lain_workspace/.gitkeep

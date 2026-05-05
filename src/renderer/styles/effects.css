@@ -1,0 +1,180 @@
+/* ============================================
+   赛博朋克特效
+   ============================================ */
+
+/* 矩阵数字雨背景 Canvas */
+.matrix-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.06;
+  pointer-events: none;
+  border-radius: 12px;
+}
+
+/* CRT 扫描线 */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 12px;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  animation: scanlineScroll 8s linear infinite;
+}
+
+@keyframes scanlineScroll {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 100px; }
+}
+
+/* 扫描线闪烁 */
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    transparent 0%,
+    rgba(0, 255, 65, 0.008) 50%,
+    transparent 100%
+  );
+  animation: scanBand 6s linear infinite;
+}
+
+@keyframes scanBand {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* 全局 Glitch 闪烁效果 */
+@keyframes globalGlitch {
+  0%, 95%, 100% { 
+    filter: none;
+    transform: none;
+  }
+  96% {
+    filter: hue-rotate(90deg) saturate(1.5);
+    transform: translateX(2px) skewX(1deg);
+  }
+  97% {
+    filter: none;
+    transform: translateX(-1px);
+  }
+  98% {
+    filter: hue-rotate(-90deg);
+    transform: translateX(1px) skewY(0.5deg);
+  }
+}
+
+.app-container.glitch-active {
+  animation: globalGlitch 0.2s steps(2) forwards;
+}
+
+/* 粒子效果容器 */
+.particle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: var(--neon-green);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1;
+}
+
+@keyframes particleFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0);
+  }
+  20% {
+    opacity: 0.8;
+    transform: translateY(-20px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.3);
+  }
+}
+
+/* 全息投影边框 */
+.holo-border {
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-image: linear-gradient(
+    45deg,
+    var(--neon-green),
+    transparent,
+    var(--neon-cyan),
+    transparent,
+    var(--neon-purple)
+  ) 1;
+  opacity: 0.3;
+  pointer-events: none;
+  animation: holoBorderRotate 10s linear infinite;
+}
+
+@keyframes holoBorderRotate {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+/* 脉冲波纹 */
+.pulse-ring {
+  position: absolute;
+  border: 1px solid var(--neon-green);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  animation: pulseExpand 2s ease-out forwards;
+}
+
+@keyframes pulseExpand {
+  0% {
+    width: 10px;
+    height: 10px;
+    opacity: 0.6;
+  }
+  100% {
+    width: 100px;
+    height: 100px;
+    opacity: 0;
+    margin: -45px;
+  }
+}
+
+/* 数据流动效果 */
+.data-stream {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--neon-green);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+@keyframes dataStreamFlow {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  10% {
+    opacity: 0.4;
+  }
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100px);
+  }
+}
