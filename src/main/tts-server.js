@@ -186,7 +186,7 @@ class TTSServer {
       speed_factor: 1.0,
       media_type: 'wav',
       streaming_mode: false,
-      sample_steps: 32,
+      sample_steps: 8,
     };
 
     try {
