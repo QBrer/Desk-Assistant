@@ -8,6 +8,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
+const PYTHON_EXE = 'E:/anconda/envs/py310/python.exe';
 const TTS_PORT = 9880;
 const TTS_HOST = '127.0.0.1';
 const TTS_BASE_URL = `http://${TTS_HOST}:${TTS_PORT}`;
@@ -60,7 +61,7 @@ class TTSServer {
     this._readyPromise = new Promise((resolve) => {
       console.log('[TTS] Starting GPT-SoVITS server...');
 
-      this.process = spawn('python', [
+      this.process = spawn(PYTHON_EXE, [
         startScript,
         String(TTS_PORT),
         TTS_HOST,

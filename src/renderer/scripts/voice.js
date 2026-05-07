@@ -140,7 +140,14 @@ class VoiceManager {
     };
 
     this.recognition.onerror = (event) => {
-      this.chatManager?.addSystemMessage(`语音识别错误: ${event.error}`);
+      if (event.error === 'network') {
+        this.chatManager?.addSystemMessage('语音识别无法使用：需要连接 Google 服务器（国内网络不可用），请直接输入文字。');
+        this.micBtn?.classList.add('unsupported');
+        this.micBtn?.setAttribute('title', '语音识别不可用（国内网络限制）');
+        this.recognition = null;
+      } else if (event.error !== 'aborted') {
+        this.chatManager?.addSystemMessage(`语音识别错误: ${event.error}`);
+      }
     };
 
     this.recognition.onend = () => {
@@ -149,7 +156,7 @@ class VoiceManager {
       window.character?.setState('idle');
 
       const text = (this.input?.value || '').trim();
-      if (text && !this.chatManager?.isStreaming) {
+      if (text && this.recognition && !this.chatManager?.isStreaming) {
         this.chatManager.sendText(text);
       }
     };
@@ -157,7 +164,9 @@ class VoiceManager {
 
   toggleListening() {
     if (!this.recognition) {
-      this.chatManager?.addSystemMessage('当前环境不支持语音识别。');
+      this.chatManager?.addSystemMessage(this.micBtn?.classList.contains('unsupported')
+        ? '语音识别不可用（国内网络限制）。'
+        : '当前环境不支持语音识别。');
       return;
     }
 
