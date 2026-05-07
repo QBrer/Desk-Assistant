@@ -44,6 +44,12 @@ module.exports = {
     WIN_TOGGLE_TOP: 'win:toggle-top',
     WIN_SET_SIZE: 'win:set-size',
 
+    // TTS 语音合成
+    TTS_SYNTHESIZE: 'tts:synthesize',
+    TTS_START: 'tts:start',
+    TTS_STOP: 'tts:stop',
+    TTS_STATUS: 'tts:status',
+
     // 设置
     SETTINGS_GET: 'settings:get',
     SETTINGS_SET: 'settings:set',

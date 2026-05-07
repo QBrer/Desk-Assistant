@@ -20,6 +20,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onConfirmRequest: (callback) => ipcRenderer.on(IPC_CHANNELS.SYS_CONFIRM, (_, data) => callback(data)),
   sendConfirmResponse: (id, confirmed) => ipcRenderer.send(IPC_CHANNELS.SYS_CONFIRM_RESPONSE, { id, confirmed }),
 
+  // TTS 语音合成 (GPT-SoVITS)
+  ttsSynthesize: (text, lang) => ipcRenderer.invoke(IPC_CHANNELS.TTS_SYNTHESIZE, text, lang),
+  ttsStart: () => ipcRenderer.invoke(IPC_CHANNELS.TTS_START),
+  ttsStop: () => ipcRenderer.invoke(IPC_CHANNELS.TTS_STOP),
+  ttsStatus: () => ipcRenderer.invoke(IPC_CHANNELS.TTS_STATUS),
+  onTTSReady: (callback) => ipcRenderer.on('tts:ready', () => callback()),
+
   // 设置
   getSetting: (key) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, key),
   setSetting: (key, value) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET, key, value),

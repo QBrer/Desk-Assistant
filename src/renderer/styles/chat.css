@@ -376,6 +376,24 @@
   border-color: rgba(0, 255, 65, 0.4);
 }
 
+/* GPT-SoVITS 玲音语音已连接指示 */
+.voice-speak-btn.tts-lain.active {
+  color: var(--neon-pink);
+  border-color: rgba(255, 0, 102, 0.4);
+  background: rgba(255, 0, 102, 0.08);
+}
+
+/* 正在朗读动画 */
+.voice-speak-btn.speaking {
+  animation: speakingPulse 0.8s ease-in-out infinite;
+  box-shadow: 0 0 14px rgba(255, 0, 102, 0.3);
+}
+
+@keyframes speakingPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.85; }
+}
+
 @keyframes voicePulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.08); }

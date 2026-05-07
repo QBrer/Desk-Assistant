@@ -15,3 +15,10 @@ yarn-error.log*
 
 lain_workspace/*
 !lain_workspace/.gitkeep
+
+# GPT-SoVITS 模型权重文件（太大，不适合 git）
+*.ckpt
+*.pth
+
+# 测试/临时音频文件
+lain-voice-model/test_*.wav

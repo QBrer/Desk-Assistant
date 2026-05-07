@@ -4,11 +4,13 @@ const Store = require('electron-store');
 const { WINDOW_CONFIG, IPC_CHANNELS } = require('../shared/constants');
 const { AIEngine } = require('./ai-engine');
 const { SystemControl } = require('./system-control');
+const { TTSServer } = require('./tts-server');
 
 let mainWindow = null;
 let tray = null;
 let aiEngine = null;
 let systemControl = null;
+let ttsServer = null;
 let isAlwaysOnTop = true;
 const settingsStore = new Store();
 
@@ -159,6 +161,38 @@ function setupIPC() {
     systemControl.resolveConfirmation(id, confirmed);
   });
 
+  // TTS 语音合成
+  ipcMain.handle(IPC_CHANNELS.TTS_SYNTHESIZE, async (event, text, lang) => {
+    if (!ttsServer || !ttsServer.isReady) {
+      return { success: false, error: 'TTS 服务未就绪' };
+    }
+    try {
+      const audioBuffer = await ttsServer.synthesize(text, lang || 'auto');
+      if (audioBuffer) {
+        // 返回 base64 编码的 WAV 数据
+        return { success: true, audio: audioBuffer.toString('base64'), format: 'wav' };
+      }
+      return { success: false, error: '合成失败' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TTS_START, async () => {
+    if (!ttsServer) ttsServer = new TTSServer();
+    const ok = await ttsServer.start();
+    return { success: ok };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TTS_STOP, async () => {
+    if (ttsServer) ttsServer.stop();
+    return { success: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TTS_STATUS, async () => {
+    return ttsServer ? ttsServer.getStatus() : { running: false, ready: false };
+  });
+
   // 设置
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (event, key) => {
     return settingsStore.get(key);
@@ -184,7 +218,7 @@ function registerShortcuts() {
 }
 
 // 应用启动
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   systemControl = new SystemControl();
 
   setupMediaPermissions();
@@ -196,6 +230,20 @@ app.whenReady().then(() => {
 
   setupIPC();
   registerShortcuts();
+
+  // 启动 TTS 服务（后台异步，不阻塞主窗口）
+  ttsServer = new TTSServer();
+  ttsServer.start().then((ok) => {
+    if (ok) {
+      console.log('[MAIN] GPT-SoVITS TTS server started successfully');
+      // 通知渲染进程 TTS 已就绪
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('tts:ready');
+      }
+    } else {
+      console.warn('[MAIN] GPT-SoVITS TTS server failed to start, using browser TTS fallback');
+    }
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -210,4 +258,8 @@ app.on('activate', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  // 停止 TTS 服务
+  if (ttsServer) {
+    ttsServer.stop();
+  }
 });

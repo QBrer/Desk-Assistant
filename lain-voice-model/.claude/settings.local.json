@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip list *)",
+      "Bash(python -c \"import torch; print\\('torch:', torch.__version__\\)\")",
+      "Bash(python -c \"import gradio; print\\('gradio:', gradio.__version__\\)\")",
+      "Bash(ls -la \"e:/PROJRCT/\" 2>/dev/null | head -20; echo \"---\"; ls -la \"e:/\" 2>/dev/null | grep -i \"sovits\\\\|gpt\" || echo \"no sovits dir in e:/\")",
+      "Read(//e/PROJRCT/**)",
+      "Read(//e//**)",
+      "Bash(E:/anconda/envs/py310/Scripts/pip.exe install *)"
+    ]
+  }
+}
