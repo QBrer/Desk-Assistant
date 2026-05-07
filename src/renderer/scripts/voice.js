@@ -217,28 +217,36 @@ class VoiceManager {
 
   /**
    * 使用 GPT-SoVITS 合成并播放
+   * 长文本按句子拆分，逐句请求合成、逐句播放，避免单次请求超时
    */
   async _speakWithGPTSoVITS(text) {
     this.isSpeaking = true;
     this._updateSpeakingUI(true);
 
     try {
-      // 检测语言
       const lang = this._detectLang(text);
+      const sentences = this._splitSentences(text);
 
-      const result = await window.electronAPI.ttsSynthesize(text, lang);
-      if (!result || !result.success || !result.audio) {
-        console.warn('[Voice] GPT-SoVITS synthesis failed, falling back to browser TTS');
-        this._speakWithBrowser(text);
-        return;
+      for (let i = 0; i < sentences.length; i++) {
+        if (!this.isSpeaking) break; // 用户手动停止
+
+        const sentence = sentences[i];
+        if (!sentence) continue;
+
+        try {
+          const result = await window.electronAPI.ttsSynthesize(sentence, lang);
+          if (result && result.success && result.audio) {
+            const audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
+            await this._playAudioBuffer(audioData.buffer);
+          } else {
+            console.warn('[Voice] Sentence synthesis failed, skipping:', sentence);
+          }
+        } catch (err) {
+          console.warn('[Voice] Sentence error:', err.message);
+        }
       }
-
-      // 解码 base64 WAV 并播放
-      const audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
-      await this._playAudioBuffer(audioData.buffer);
     } catch (err) {
       console.error('[Voice] GPT-SoVITS error:', err);
-      // fallback
       this._speakWithBrowser(text);
     }
   }
@@ -344,6 +352,24 @@ class VoiceManager {
       .replace(/#{1,6}\s/g, '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  /**
+   * 按标点拆分句子，短句合并到相邻句避免过多碎片
+   */
+  _splitSentences(text) {
+    const raw = text.split(/(?<=[。！？.!?\n])\s*/);
+    const result = [];
+    for (const s of raw) {
+      const trimmed = s.trim();
+      if (!trimmed) continue;
+      if (trimmed.length < 4 && result.length > 0) {
+        result[result.length - 1] += trimmed;
+      } else {
+        result.push(trimmed);
+      }
+    }
+    return result.length > 0 ? result : [text];
   }
 
   /**
