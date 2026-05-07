@@ -109,12 +109,21 @@ class TTSServer {
         this._healthPing()
           .then((ok) => {
             if (ok) {
-              console.log('[TTS] Server is ready!');
-              this.isReady = true;
+              console.log('[TTS] Server is responding, loading model weights...');
               this.isStarting = false;
               this._startHealthCheck();
-              // 加载模型权重
-              this._loadModelWeights().then(() => resolve(true));
+              // 加载模型权重，成功才标记 ready
+              this._loadModelWeights()
+                .then(() => {
+                  this.isReady = true;
+                  console.log('[TTS] Server is ready!');
+                  resolve(true);
+                })
+                .catch((err) => {
+                  console.error('[TTS] Model weights failed to load:', err.message);
+                  this.isReady = false;
+                  resolve(false);
+                });
             } else {
               setTimeout(pollReady, 3000);
             }
@@ -136,17 +145,13 @@ class TTSServer {
     const gptPath = path.join(MODEL_DIR, 'xxx-e15.ckpt');
     const sovitsPath = path.join(MODEL_DIR, 'xxx_e16_s144_l32.pth');
 
-    try {
-      // 先加载 SoVITS 权重
-      await this._httpGet(`${TTS_BASE_URL}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsPath)}`);
-      console.log('[TTS] SoVITS weights loaded');
+    // 先加载 SoVITS 权重
+    await this._httpGet(`${TTS_BASE_URL}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsPath)}`);
+    console.log('[TTS] SoVITS weights loaded');
 
-      // 再加载 GPT 权重
-      await this._httpGet(`${TTS_BASE_URL}/set_gpt_weights?weights_path=${encodeURIComponent(gptPath)}`);
-      console.log('[TTS] GPT weights loaded');
-    } catch (err) {
-      console.error('[TTS] Failed to load model weights:', err.message);
-    }
+    // 再加载 GPT 权重
+    await this._httpGet(`${TTS_BASE_URL}/set_gpt_weights?weights_path=${encodeURIComponent(gptPath)}`);
+    console.log('[TTS] GPT weights loaded');
   }
 
   /**
@@ -253,12 +258,11 @@ class TTSServer {
    */
   _healthPing() {
     return new Promise((resolve) => {
-      const req = http.get(`${TTS_BASE_URL}/tts?text=ping&text_lang=en&ref_audio_path=test&prompt_lang=en&media_type=wav`, {
+      const req = http.get(`${TTS_BASE_URL}/`, {
         timeout: 3000,
       }, (res) => {
-        // 只要服务能响应就算健康（400 也表示服务在运行）
         res.resume();
-        resolve(res.statusCode === 200 || res.statusCode === 400 || res.statusCode === 422);
+        resolve(true);
       });
       req.on('error', () => resolve(false));
       req.on('timeout', () => { req.destroy(); resolve(false); });

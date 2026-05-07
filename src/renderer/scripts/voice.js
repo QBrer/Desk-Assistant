@@ -243,6 +243,10 @@ class VoiceManager {
         this._audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
 
+      if (this._audioContext.state === 'suspended') {
+        await this._audioContext.resume();
+      }
+
       const audioBuffer = await this._audioContext.decodeAudioData(arrayBuffer);
       const source = this._audioContext.createBufferSource();
       source.buffer = audioBuffer;
