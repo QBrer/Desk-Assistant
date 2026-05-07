@@ -6,6 +6,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 
 const PYTHON_EXE = 'E:/anconda/envs/py310/python.exe';
@@ -259,14 +260,12 @@ class TTSServer {
    */
   _healthPing() {
     return new Promise((resolve) => {
-      const req = http.get(`${TTS_BASE_URL}/`, {
-        timeout: 3000,
-      }, (res) => {
-        res.resume();
-        resolve(true);
-      });
-      req.on('error', () => resolve(false));
-      req.on('timeout', () => { req.destroy(); resolve(false); });
+      const sock = new net.Socket();
+      sock.setTimeout(3000);
+      sock.on('connect', () => { sock.destroy(); resolve(true); });
+      sock.on('error', () => { sock.destroy(); resolve(false); });
+      sock.on('timeout', () => { sock.destroy(); resolve(false); });
+      sock.connect(TTS_PORT, TTS_HOST);
     });
   }
 
@@ -275,7 +274,7 @@ class TTSServer {
    */
   _httpGet(url) {
     return new Promise((resolve, reject) => {
-      const req = http.get(url, { timeout: 30000 }, (res) => {
+      const req = http.get(url, { timeout: 120000 }, (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
@@ -308,7 +307,7 @@ class TTSServer {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(jsonBody),
         },
-        timeout: 60000,
+        timeout: 180000,
       };
 
       const req = http.request(options, (res) => {
