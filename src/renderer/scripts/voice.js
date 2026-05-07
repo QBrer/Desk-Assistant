@@ -222,13 +222,15 @@ class VoiceManager {
   async _speakWithGPTSoVITS(text) {
     this.isSpeaking = true;
     this._updateSpeakingUI(true);
+    window.character?.setState('talking');
+
+    const lang = this._detectLang(text);
+    const sentences = this._splitSentences(text);
+    let anySuccess = false;
 
     try {
-      const lang = this._detectLang(text);
-      const sentences = this._splitSentences(text);
-
       for (let i = 0; i < sentences.length; i++) {
-        if (!this.isSpeaking) break; // 用户手动停止
+        if (!this.isSpeaking) break;
 
         const sentence = sentences[i];
         if (!sentence) continue;
@@ -238,52 +240,56 @@ class VoiceManager {
           if (result && result.success && result.audio) {
             const audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
             await this._playAudioBuffer(audioData.buffer);
-          } else {
-            console.warn('[Voice] Sentence synthesis failed, skipping:', sentence);
+            anySuccess = true;
           }
         } catch (err) {
           console.warn('[Voice] Sentence error:', err.message);
         }
       }
-    } catch (err) {
-      console.error('[Voice] GPT-SoVITS error:', err);
+    } finally {
+      this.isSpeaking = false;
+      this._updateSpeakingUI(false);
+      window.character?.setState('idle');
+    }
+
+    if (!anySuccess && sentences.length > 0) {
       this._speakWithBrowser(text);
     }
   }
 
   /**
-   * 使用 Web Audio API 播放 WAV Buffer
+   * 播放 WAV Buffer，返回 Promise 在播放完成时 resolve
    */
-  async _playAudioBuffer(arrayBuffer) {
-    try {
-      if (!this._audioContext) {
-        this._audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  _playAudioBuffer(arrayBuffer) {
+    return new Promise((resolve, reject) => {
+      try {
+        if (!this._audioContext) {
+          this._audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        const doPlay = () => {
+          this._audioContext.decodeAudioData(arrayBuffer, (audioBuffer) => {
+            const source = this._audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this._audioContext.destination);
+            source.onended = () => {
+              this._currentSource = null;
+              resolve();
+            };
+            this._currentSource = source;
+            source.start(0);
+          }, reject);
+        };
+
+        if (this._audioContext.state === 'suspended') {
+          this._audioContext.resume().then(doPlay).catch(reject);
+        } else {
+          doPlay();
+        }
+      } catch (err) {
+        reject(err);
       }
-
-      if (this._audioContext.state === 'suspended') {
-        await this._audioContext.resume();
-      }
-
-      const audioBuffer = await this._audioContext.decodeAudioData(arrayBuffer);
-      const source = this._audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(this._audioContext.destination);
-
-      source.onended = () => {
-        this.isSpeaking = false;
-        this._updateSpeakingUI(false);
-        this._currentSource = null;
-        window.character?.setState('idle');
-      };
-
-      this._currentSource = source;
-      window.character?.setState('talking');
-      source.start(0);
-    } catch (err) {
-      console.error('[Voice] Audio playback error:', err);
-      this.isSpeaking = false;
-      this._updateSpeakingUI(false);
-    }
+    });
   }
 
   /**
