@@ -5,12 +5,14 @@ const { WINDOW_CONFIG, IPC_CHANNELS } = require('../shared/constants');
 const { AIEngine } = require('./ai-engine');
 const { SystemControl } = require('./system-control');
 const { TTSServer } = require('./tts-server');
+const { STTServer } = require('./stt-server');
 
 let mainWindow = null;
 let tray = null;
 let aiEngine = null;
 let systemControl = null;
 let ttsServer = null;
+let sttServer = null;
 let isAlwaysOnTop = true;
 const settingsStore = new Store();
 
@@ -193,6 +195,27 @@ function setupIPC() {
     return ttsServer ? ttsServer.getStatus() : { running: false, ready: false };
   });
 
+  // STT 语音识别
+  ipcMain.handle(IPC_CHANNELS.STT_TRANSCRIBE, async (event, audioData) => {
+    if (!sttServer || !sttServer.isReady) {
+      return { success: false, error: 'STT 服务未就绪' };
+    }
+    try {
+      const audioBuffer = Buffer.from(audioData);
+      const text = await sttServer.transcribe(audioBuffer);
+      if (text) {
+        return { success: true, text };
+      }
+      return { success: false, error: '未识别到语音' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.STT_STATUS, async () => {
+    return sttServer ? sttServer.getStatus() : { running: false, ready: false };
+  });
+
   // 设置
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async (event, key) => {
     return settingsStore.get(key);
@@ -236,12 +259,21 @@ app.whenReady().then(async () => {
   ttsServer.start().then((ok) => {
     if (ok) {
       console.log('[MAIN] GPT-SoVITS TTS server started successfully');
-      // 通知渲染进程 TTS 已就绪
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('tts:ready');
       }
     } else {
       console.warn('[MAIN] GPT-SoVITS TTS server failed to start, using browser TTS fallback');
+    }
+  });
+
+  // 启动 STT 服务（后台异步，不阻塞主窗口）
+  sttServer = new STTServer();
+  sttServer.start().then((ok) => {
+    if (ok) {
+      console.log('[MAIN] Whisper STT server started successfully');
+    } else {
+      console.warn('[MAIN] Whisper STT server failed to start, using keyboard input only');
     }
   });
 });
@@ -261,5 +293,9 @@ app.on('will-quit', () => {
   // 停止 TTS 服务
   if (ttsServer) {
     ttsServer.stop();
+  }
+  // 停止 STT 服务
+  if (sttServer) {
+    sttServer.stop();
   }
 });

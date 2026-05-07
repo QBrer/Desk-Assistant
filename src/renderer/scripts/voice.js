@@ -22,7 +22,7 @@ class VoiceManager {
     this._currentSource = null;
 
     this._setupSpeechSynthesis();
-    this._setupRecognition();
+    this._setupRecording();
     this._setupEvents();
     this._setupTTS();
   }
@@ -95,92 +95,112 @@ class VoiceManager {
     window.speechSynthesis.onvoiceschanged = pickVoice;
   }
 
-  // ————————— 语音识别（输入） —————————
+  // ————————— 语音识别（输入，faster-whisper）—————————
 
-  _setupRecognition() {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
+  _setupRecording() {
+    this._mediaStream = null;
+    this._mediaRecorder = null;
+    this._audioChunks = [];
+    this._sttReady = false;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
       this.micBtn?.classList.add('unsupported');
-      this.micBtn?.setAttribute('title', '当前环境不支持语音识别');
+      this.micBtn?.setAttribute('title', '当前环境不支持麦克风');
       return;
     }
 
-    this.recognition = new Recognition();
-    this.recognition.lang = 'zh-CN';
-    this.recognition.continuous = false;
-    this.recognition.interimResults = true;
-    this.recognition.maxAlternatives = 1;
-
-    let finalTranscript = '';
-
-    this.recognition.onstart = () => {
-      finalTranscript = '';
-      this.isListening = true;
-      this.micBtn?.classList.add('listening');
-      window.character?.setState('thinking');
-    };
-
-    this.recognition.onresult = (event) => {
-      let interimTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript.trim();
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      const visibleText = `${finalTranscript}${interimTranscript}`.trim();
-      if (this.input && visibleText) {
-        this.input.value = visibleText;
-        this.input.dispatchEvent(new Event('input'));
-      }
-    };
-
-    this.recognition.onerror = (event) => {
-      if (event.error === 'network') {
-        this.chatManager?.addSystemMessage('语音识别无法使用：需要连接 Google 服务器（国内网络不可用），请直接输入文字。');
+    // 预先请求麦克风权限
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        this._mediaStream = stream;
+        this.micBtn?.setAttribute('title', '点击开始语音输入 (本地 Whisper)');
+      })
+      .catch(() => {
         this.micBtn?.classList.add('unsupported');
-        this.micBtn?.setAttribute('title', '语音识别不可用（国内网络限制）');
-        this.recognition = null;
-      } else if (event.error !== 'aborted') {
-        this.chatManager?.addSystemMessage(`语音识别错误: ${event.error}`);
-      }
-    };
+        this.micBtn?.setAttribute('title', '麦克风权限被拒绝');
+      });
 
-    this.recognition.onend = () => {
-      this.isListening = false;
-      this.micBtn?.classList.remove('listening');
-      window.character?.setState('idle');
-
-      const text = (this.input?.value || '').trim();
-      if (text && this.recognition && !this.chatManager?.isStreaming) {
-        this.chatManager.sendText(text);
-      }
-    };
+    // 查询 STT 服务状态
+    if (window.electronAPI) {
+      window.electronAPI.sttStatus().then((status) => {
+        this._sttReady = status && status.ready;
+        if (!this._sttReady) {
+          console.log('[Voice] Whisper STT not ready yet, will try when needed');
+        }
+      });
+    }
   }
 
   toggleListening() {
-    if (!this.recognition) {
-      this.chatManager?.addSystemMessage(this.micBtn?.classList.contains('unsupported')
-        ? '语音识别不可用（国内网络限制）。'
-        : '当前环境不支持语音识别。');
+    if (!this._mediaStream) {
+      this.chatManager?.addSystemMessage('麦克风不可用，请检查权限设置。');
       return;
     }
 
     if (this.isListening) {
-      this.recognition.stop();
+      this._stopRecording();
       return;
     }
 
     try {
       this.stopSpeaking();
-      this.recognition.start();
+      this._startRecording();
     } catch (error) {
-      this.chatManager?.addSystemMessage(`语音启动失败: ${error.message}`);
+      this.chatManager?.addSystemMessage(`录音启动失败: ${error.message}`);
     }
+  }
+
+  _startRecording() {
+    this._audioChunks = [];
+    this._mediaRecorder = new MediaRecorder(this._mediaStream, {
+      mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm',
+    });
+
+    this._mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) this._audioChunks.push(e.data);
+    };
+
+    this._mediaRecorder.onstop = async () => {
+      if (this._audioChunks.length === 0) return;
+
+      const blob = new Blob(this._audioChunks, { type: 'audio/webm' });
+      this._audioChunks = [];
+
+      // 转为 ArrayBuffer 发送给 STT
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8 = new Uint8Array(arrayBuffer);
+
+      try {
+        const result = await window.electronAPI.sttTranscribe(Array.from(uint8));
+        if (result && result.success && result.text) {
+          if (this.input) {
+            this.input.value = result.text;
+            this.input.dispatchEvent(new Event('input'));
+          }
+          this.chatManager.sendText(result.text);
+        } else {
+          this.chatManager?.addSystemMessage('未识别到语音内容，请重试。');
+        }
+      } catch (err) {
+        this.chatManager?.addSystemMessage(`语音识别失败: ${err.message}`);
+      }
+    };
+
+    this._mediaRecorder.start();
+    this.isListening = true;
+    this.micBtn?.classList.add('listening');
+    window.character?.setState('thinking');
+  }
+
+  _stopRecording() {
+    if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+      this._mediaRecorder.stop();
+    }
+    this.isListening = false;
+    this.micBtn?.classList.remove('listening');
+    window.character?.setState('idle');
   }
 
   toggleAutoSpeak() {

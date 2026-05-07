@@ -50,6 +50,10 @@ module.exports = {
     TTS_STOP: 'tts:stop',
     TTS_STATUS: 'tts:status',
 
+    // STT 语音识别 (faster-whisper)
+    STT_TRANSCRIBE: 'stt:transcribe',
+    STT_STATUS: 'stt:status',
+
     // 设置
     SETTINGS_GET: 'settings:get',
     SETTINGS_SET: 'settings:set',

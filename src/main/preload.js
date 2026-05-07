@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ttsStatus: () => ipcRenderer.invoke(IPC_CHANNELS.TTS_STATUS),
   onTTSReady: (callback) => ipcRenderer.on('tts:ready', () => callback()),
 
+  // STT 语音识别 (faster-whisper)
+  sttTranscribe: (audioData) => ipcRenderer.invoke(IPC_CHANNELS.STT_TRANSCRIBE, audioData),
+  sttStatus: () => ipcRenderer.invoke(IPC_CHANNELS.STT_STATUS),
+
   // 设置
   getSetting: (key) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, key),
   setSetting: (key, value) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET, key, value),
