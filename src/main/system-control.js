@@ -15,11 +15,11 @@ class SystemControl {
   }
 
   async execute(command) {
-    const { type, params = {} } = command;
+    const { type, params = {}, confirmCallback } = command;
 
     switch (type) {
       case 'run_command':
-        return await this.runCommand(params.cmd);
+        return await this.runCommand(params.cmd, { confirmCallback });
       case 'run_python_file':
         return await this.runPythonFile(params.filePath, {
           args: params.args || [],
@@ -75,7 +75,7 @@ class SystemControl {
     return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
   }
 
-  runCommand(cmd) {
+  runCommand(cmd, { confirmCallback } = {}) {
     const safety = this.assessCommandSafety(cmd);
     if (!safety.safe) {
       return Promise.resolve({
@@ -85,6 +85,29 @@ class SystemControl {
       });
     }
 
+    // 检查是否写入系统目录，需要用户确认
+    const writeCheck = this.assessWriteTarget(cmd);
+    if (writeCheck.needsConfirm) {
+      if (confirmCallback) {
+        // 有回调则请求确认
+        return confirmCallback(writeCheck.message).then((confirmed) => {
+          if (!confirmed) {
+            return { success: false, message: '用户取消了该操作', cancelled: true };
+          }
+          return this._execCommand(cmd);
+        });
+      }
+      // 没有回调则直接拒绝（安全检查）
+      return Promise.resolve({
+        success: false,
+        error: writeCheck.message + ' 如需执行此操作，请在应用中确认。',
+      });
+    }
+
+    return this._execCommand(cmd);
+  }
+
+  _execCommand(cmd) {
     const pythonScript = this.tryParsePythonScriptCommand(cmd);
     if (pythonScript) {
       return this.runPythonFile(pythonScript.filePath, { args: pythonScript.args });
@@ -120,17 +143,29 @@ class SystemControl {
 
     const lower = cmd.trim().replace(/\s+/g, ' ').toLowerCase();
     const blockedPatterns = [
-      { pattern: /\b(remove-item|rm|del|erase|rmdir|rd)\b/i, reason: '已拦截删除命令。请使用受限的 delete_file 工具，只能删除 lain_workspace 内的文件。' },
-      { pattern: /\b(clear-content|set-content|add-content|out-file|new-item|copy-item|move-item|rename-item)\b/i, reason: '已拦截会写入或移动文件的命令。请使用受限的 write_file 工具。' },
-      { pattern: /\b(format-volume|format\b|diskpart|bcdedit|bootrec|cipher\s+\/w)\b/i, reason: '已拦截磁盘或启动配置相关的高危命令。' },
-      { pattern: /\b(reg\s+delete|reg\s+add|set-itemproperty|new-itemproperty|remove-itemproperty)\b/i, reason: '已拦截注册表修改命令。' },
-      { pattern: /\b(takeown|icacls|attrib)\b/i, reason: '已拦截权限或文件属性修改命令。' },
-      { pattern: /\b(invoke-expression|iex|invoke-command|start-job|schtasks|sc\s+delete|sc\s+create)\b/i, reason: '已拦截可绕过安全策略或持久化执行的命令。' },
-      { pattern: /\b(encodedcommand|frombase64string)\b/i, reason: '已拦截编码或混淆命令。' },
-      { pattern: /(^|[^<])>(?!\s*$)|>>/i, reason: '已拦截命令行重定向写入。请使用受限的 write_file 工具。' },
-      { pattern: /\b(python|py|python3)\s+(-c|\/c)\b/i, reason: '已拦截 Python 内联代码执行。请把脚本写入 lain_workspace 后使用 run_python_file。' },
-      { pattern: /\b(cmd|powershell|pwsh)\s+(\/c|-command|-encodedcommand)\b/i, reason: '已拦截嵌套 shell 命令。' },
+      // === 禁止：删除（任何位置，绝对禁止）===
+      { pattern: /\b(remove-item|rm\s|del\s|erase\s|rmdir\s|rd\s|wipe|shred|sdelete)\b/i, reason: '已拦截删除命令。删除只能通过 delete_file 工具在 lain_workspace 内操作。' },
+      { pattern: /\b(rm\s+-rf|rm\s+-r\s|del\s+\/f\s+\/s|del\s+\/s\s+\/q)\b/i, reason: '已拦截强制递归删除。' },
+      // === 禁止：移动/重命名（可能造成数据丢失）===
+      { pattern: /\b(move-item|rename-item)\b/i, reason: '已拦截移动/重命名。请先复制到 lain_workspace 再操作。' },
+      // === 禁止：修改系统 ===
+      { pattern: /\b(format-volume|format\s|diskpart|bcdedit|bootrec|cipher\s+\/w)\b/i, reason: '已拦截磁盘/启动配置修改。' },
+      { pattern: /\b(reg\s+(delete|add|export|import|load|unload|restore|save)|set-itemproperty|new-itemproperty|remove-itemproperty)\b/i, reason: '已拦截注册表修改。' },
+      { pattern: /\b(takeown|icacls|runas\s+\/user)\b/i, reason: '已拦截权限修改。' },
+      { pattern: /\b(Set-Service|New-Service|sc\s+(delete|create|config)|schtasks)\b/i, reason: '已拦截服务/计划任务操作。' },
+      // === 禁止：绕过安全 ===
+      { pattern: /\b(invoke-expression|iex|invoke-command|start-job)\b/i, reason: '已拦截可绕过安全策略的命令。' },
+      { pattern: /\b(encodedcommand|frombase64string|frombase64)\b/i, reason: '已拦截编码/混淆命令。' },
+      // === 禁止：内联代码 / 嵌套 shell ===
+      { pattern: /\b(python|py|python3)\s+(-c|\/c)\b/i, reason: '已拦截内联代码。请写入 lain_workspace 后用 run_python_file。' },
+      { pattern: /\b(cmd|powershell|pwsh|bash|wsl)\s+(\/c|-c|-command|-encodedcommand)\b/i, reason: '已拦截嵌套 shell。' },
+      { pattern: /\b(curl|wget|iwr|invoke-webrequest)\s+.*\|\s*(sh|bash|cmd|powershell|python)/i, reason: '已拦截管道执行攻击。' },
     ];
+    // 允许的命令（非拦截类）：
+    // - copy-item：允许，复制不丢失数据
+    // - new-item, mkdir：允许，创建文件/目录是正常操作
+    // - set-content, add-content, out-file：允许，配合 write_file 工具使用
+    // - 所有读取类命令：允许（get-*, dir, ls, cat, type, where, python --version 等）
 
     for (const item of blockedPatterns) {
       if (item.pattern.test(lower)) {
@@ -139,6 +174,32 @@ class SystemControl {
     }
 
     return { safe: true };
+  }
+
+  assessWriteTarget(cmd) {
+    // 检测命令是否写入系统盘（C:）且不在 lain_workspace 内
+    const writePatterns = [
+      /copy-item\s+.*\s+(['"]?)([a-z]:\\(?!.*lain_workspace)[^'"\s]*)\2?/i,
+      /set-content\s+.*-path\s+(['"]?)([a-z]:\\(?!.*lain_workspace)[^'"\s]*)\2?/i,
+      /out-file\s+-filepath\s+(['"]?)([a-z]:\\(?!.*lain_workspace)[^'"\s]*)\2?/i,
+      /new-item\s+.*-path\s+(['"]?)([a-z]:\\(?!.*lain_workspace)[^'"\s]*)\2?/i,
+      /add-content\s+.*-path\s+(['"]?)([a-z]:\\(?!.*lain_workspace)[^'"\s]*)\2?/i,
+      />\s*([a-z]:\\(?!.*lain_workspace)[^&\s]*)/i,
+    ];
+
+    for (const pat of writePatterns) {
+      const match = cmd.match(pat);
+      if (match) {
+        const target = match[2] || match[1];
+        const dir = target ? target.replace(/\\[^\\]*$/, '\\') : 'C:\\';
+        return {
+          needsConfirm: true,
+          message: `即将写入系统目录: ${dir}\n\n此操作会将文件写入工作区外的系统盘。确定要继续吗？`,
+        };
+      }
+    }
+
+    return { needsConfirm: false };
   }
 
   tryParsePythonScriptCommand(cmd) {
@@ -179,10 +240,18 @@ class SystemControl {
     }
 
     const blockedPatterns = [
-      { pattern: /\b(os\.(remove|unlink|rmdir|removedirs|rename|replace|system|popen)|shutil\.(rmtree|move)|subprocess\.|Path\s*\([^)]*\)\.(unlink|rmdir))\b/i, reason: '已拦截包含删除、移动文件或启动系统命令的 Python 脚本。为了安全，请把文件操作交给受限工具处理。' },
-      { pattern: /\b(remove-item|rm\s+|del\s+|erase\s+|rmdir\s+|rd\s+|format-volume|diskpart|reg\s+(delete|add))\b/i, reason: '已拦截包含高危系统命令文本的 Python 脚本。' },
-      { pattern: /\b(c:\\|c:\/|windows\\system32|users\\|program files|appdata)\b/i, reason: '已拦截引用系统盘或用户目录的 Python 脚本。Python 脚本只能安全地处理 lain_workspace 内的数据。' },
+      // 删除/移动文件
+      { pattern: /\b(os\.(remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(rmtree|move)|Path\s*\([^)]*\)\.(unlink|rmdir))\b/i, reason: '已拦截包含删除/移动文件的 Python 脚本。' },
+      // 启动子进程/系统调用
+      { pattern: /\b(os\.(system|popen|execl|execle|execlp|execlpe|execv|execve|execvp|execvpe|spawnl|spawnle|spawnlp|spawnlpe|spawnv|spawnve|spawnvp|spawnvpe)|subprocess\.)\b/i, reason: '已拦截包含系统调用的 Python 脚本。' },
+      // 写入文件
+      { pattern: /\b(Path\s*\([^)]*\)\.(write_text|write_bytes)|shutil\.(copy|copy2|copytree|make_archive))\b/i, reason: '已拦截包含文件写入的 Python 脚本。请使用受限的 write_file 工具。' },
+      // 内嵌高危命令
+      { pattern: /\b(remove-item|rm\s+|del\s+|rmdir\s+|format-volume|diskpart|reg\s+(delete|add)|takeown|icacls|schtasks)\b/i, reason: '已拦截包含高危命令的 Python 脚本。' },
+      // 下载+执行
+      { pattern: /\b(urllib\.request\.urlretrieve|requests\.get.*\bexec\b)/i, reason: '已拦截网络下载+执行模式。' },
     ];
+    // 允许读取/查看系统路径，不再拦截 c:\ 等路径引用
 
     for (const item of blockedPatterns) {
       if (item.pattern.test(content)) {

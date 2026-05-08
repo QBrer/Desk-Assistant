@@ -292,6 +292,14 @@ class AIEngine {
     return `${status}${message}`;
   }
 
+  _stripDSML(content) {
+    if (!content || typeof content !== 'string') return '';
+    return content
+      .replace(/<[/]?\s*(invoke|parameter|tool_calls|DSML)[^>]*>/gi, '')
+      .replace(/<\/\s*(invoke|parameter|tool_calls|DSML)\s*>/gi, '')
+      .trim();
+  }
+
   _parseTextToolCall(content) {
     if (!content || typeof content !== 'string') return null;
     if (!content.includes('tool_calls') && !content.includes('invoke name=')) return null;
@@ -446,8 +454,8 @@ class AIEngine {
           return await this._handleTextToolCall(textToolCall, onChunk);
         }
 
-        // AI 直接回复文字
-        const content = message.content || '';
+        // AI 直接回复文字（过滤掉 DSML 标签）
+        const content = this._stripDSML(message.content || '');
         this.conversationHistory.push({
           role: 'assistant',
           content: content,
@@ -513,12 +521,23 @@ class AIEngine {
   async _executeTool(funcName, args) {
     // 删除操作需要用户确认
     if (funcName === 'delete_file') {
-      const confirmed = await this._requestUserConfirmation(args.filePath);
+      const confirmed = await this._requestUserConfirmation(
+        `即将删除: ${args.filePath}\n\n此操作不可撤销！确认删除吗？`
+      );
       if (!confirmed) {
-        return { success: false, message: '用户拒绝了删除操作', cancelled: true };
+        return { success: false, message: '用户取消了删除操作', cancelled: true };
       }
-      // 用户确认后执行删除
       return await this.systemControl.execute({ type: 'delete_confirmed', params: args });
+    }
+
+    // run_command 可能需要确认（写入系统盘）
+    if (funcName === 'run_command') {
+      const result = await this.systemControl.execute({
+        type: 'run_command',
+        params: args,
+        confirmCallback: (msg) => this._requestUserConfirmation(msg),
+      });
+      return result;
     }
 
     // 其他操作直接执行
@@ -528,11 +547,10 @@ class AIEngine {
   /**
    * 请求用户确认（删除操作 — 最高权限）
    */
-  _requestUserConfirmation(filePath) {
+  _requestUserConfirmation(message) {
     return new Promise((resolve) => {
       const confirmId = `confirm_${Date.now()}`;
 
-      // 注册一次性监听器
       const { ipcMain } = require('electron');
       const channel = 'sys:confirm-response';
 
@@ -544,18 +562,15 @@ class AIEngine {
       };
       ipcMain.on(channel, handler);
 
-      // 发送确认请求到渲染进程
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('sys:confirm', {
           id: confirmId,
-          filePath: filePath,
-          message: `⚠️ 【最高权限确认】\n\n即将删除: ${filePath}\n\n此操作不可撤销！确认删除吗？`,
+          message: `⚠️ 【权限确认】\n\n${message}`,
         });
       } else {
         resolve(false);
       }
 
-      // 超时 60 秒自动拒绝
       setTimeout(() => {
         ipcMain.removeListener(channel, handler);
         resolve(false);
