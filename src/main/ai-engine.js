@@ -367,22 +367,23 @@ class AIEngine {
       const message = choice.message;
       const textToolCall = this._parseTextToolCall(message.content);
 
-      // 如果 AI 想调用工具
+      // 先检查文本格式的工具调用（DeepSeek 可能用 DSML 格式）
+      if (textToolCall) {
+        return await this._handleTextToolCall(textToolCall, onChunk);
+      }
+
+      // 标准 OpenAI function calling 格式
       if (message.tool_calls && message.tool_calls.length > 0) {
-        // 把 AI 的工具调用意图加入历史
         this.conversationHistory.push(message);
 
-        // 通知前端 AI 正在执行操作
         const toolCall = message.tool_calls[0];
         const funcName = toolCall.function.name;
         const funcArgs = JSON.parse(toolCall.function.arguments);
 
         onChunk(`...正在执行操作: ${this._getActionDescription(funcName, funcArgs)}\n\n`);
 
-        // 执行工具调用
         const toolResult = await this._executeTool(funcName, funcArgs);
 
-        // 把工具结果加入历史
         this.conversationHistory.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -390,73 +391,68 @@ class AIEngine {
         });
 
         // 第二次调用：让 AI 根据工具结果生成最终回复（流式）
-        const finalMessages = [
-          { role: 'system', content: LAIN_SYSTEM_PROMPT },
-          ...this.conversationHistory,
-        ];
+        try {
+          const finalMessages = [
+            { role: 'system', content: LAIN_SYSTEM_PROMPT },
+            ...this.conversationHistory,
+          ];
 
-        const stream = await this.client.chat.completions.create({
-          model: this._getModel(),
-          messages: finalMessages,
-          max_tokens: AI_CONFIG.MAX_TOKENS,
-          temperature: AI_CONFIG.TEMPERATURE,
-          stream: true,
-        });
+          const stream = await this.client.chat.completions.create({
+            model: this._getModel(),
+            messages: finalMessages,
+            max_tokens: AI_CONFIG.MAX_TOKENS,
+            temperature: AI_CONFIG.TEMPERATURE,
+            stream: true,
+          });
 
-        let fullResponse = '';
-        for await (const chunk of stream) {
-          if (this._aborted) break;
-          const content = chunk.choices[0]?.delta?.content || '';
-          if (content) {
-            fullResponse += content;
-            onChunk(content);
+          let fullResponse = '';
+          for await (const chunk of stream) {
+            if (this._aborted) break;
+            const content = chunk.choices[0]?.delta?.content || '';
+            if (content) {
+              fullResponse += content;
+              onChunk(content);
+            }
           }
+          if (this._aborted) { onChunk('\n\n_已停止。_'); return fullResponse; }
+
+          // 如果流式没返回内容，用工具结果兜底
+          if (!fullResponse.trim()) {
+            fullResponse = this._formatToolResult(funcName, toolResult);
+            for (let i = 0; i < fullResponse.length; i++) {
+              onChunk(fullResponse[i]);
+              await new Promise(r => setTimeout(r, 10));
+            }
+          }
+
+          this.conversationHistory.push({
+            role: 'assistant',
+            content: fullResponse,
+          });
+
+          return fullResponse;
+        } catch (streamErr) {
+          // 第二次调用失败，直接用工具结果兜底
+          console.error('Second API call failed:', streamErr.message);
+          const fallback = this._formatToolResult(funcName, toolResult);
+          this.conversationHistory.push({
+            role: 'assistant',
+            content: fallback,
+          });
+          for (let i = 0; i < fallback.length; i++) {
+            onChunk(fallback[i]);
+            await new Promise(r => setTimeout(r, 10));
+          }
+          return fallback;
         }
-        if (this._aborted) { onChunk('\n\n_已停止。_'); return fullResponse; }
-
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: fullResponse,
-        });
-
-        return fullResponse;
-      } else if (textToolCall) {
-        const funcName = textToolCall.name;
-        const funcArgs = textToolCall.args;
-
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: `[tool_call:${funcName}]`,
-        });
-
-        onChunk(`...正在执行操作: ${this._getActionDescription(funcName, funcArgs)}\n\n`);
-
-        const toolResult = await this._executeTool(funcName, funcArgs);
-        const finalText = this._formatToolResult(funcName, toolResult);
-
-        for (let i = 0; i < finalText.length; i++) {
-          if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
-          onChunk(finalText[i]);
-          await new Promise(r => setTimeout(r, 10));
-        }
-        if (this._aborted) return finalText;
-
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: finalText,
-        });
-
-        return finalText;
       } else {
-        // AI 直接回复文字（非工具调用），流式输出
-        // 由于第一次已经是非流式调用，这里直接拿内容做打字效果
+        // AI 直接回复文字（非工具调用）
         const content = message.content || '';
         this.conversationHistory.push({
           role: 'assistant',
           content: content,
         });
 
-        // 模拟流式输出（逐字符）
         for (let i = 0; i < content.length; i++) {
           if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
           onChunk(content[i]);
@@ -469,6 +465,45 @@ class AIEngine {
       console.error('AI Engine Error:', error);
       this.conversationHistory.pop();
       throw new Error(this._formatAPIError(error));
+    }
+  }
+
+  async _handleTextToolCall(textToolCall, onChunk) {
+    const funcName = textToolCall.name;
+    const funcArgs = textToolCall.args;
+
+    this.conversationHistory.push({
+      role: 'assistant',
+      content: `[tool_call:${funcName}]`,
+    });
+
+    onChunk(`...正在执行操作: ${this._getActionDescription(funcName, funcArgs)}\n\n`);
+
+    try {
+      const toolResult = await this._executeTool(funcName, funcArgs);
+      const finalText = this._formatToolResult(funcName, toolResult);
+
+      for (let i = 0; i < finalText.length; i++) {
+        if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
+        onChunk(finalText[i]);
+        await new Promise(r => setTimeout(r, 10));
+      }
+
+      this.conversationHistory.push({
+        role: 'assistant',
+        content: finalText,
+      });
+
+      return finalText;
+    } catch (err) {
+      console.error('Tool execution error:', err.message);
+      const errorText = `操作失败: ${err.message}`;
+      onChunk(errorText);
+      this.conversationHistory.push({
+        role: 'assistant',
+        content: errorText,
+      });
+      return errorText;
     }
   }
 
