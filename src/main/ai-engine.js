@@ -233,6 +233,7 @@ class AIEngine {
     this.maxHistory = Infinity;
     this.client = null;
     this._aborted = false;
+    this._isProcessing = false;
     this._clientReady = this._initClient();
   }
 
@@ -385,163 +386,166 @@ class AIEngine {
   }
 
   /**
-   * 发送消息并流式返回，支持 Function Calling
+   * 发送消息并流式返回 — 智能体工作流 (Agentic Workflow)
+   * 使用 while 循环实现多步工具调用，直到模型给出最终文本回复。
    */
   async sendMessage(userMessage, onChunk) {
-    await this._clientReady;
+    if (this._isProcessing) {
+      onChunk('\n[系统] 玲音正在思考或操作中，请稍候...\n');
+      return '';
+    }
+    this._isProcessing = true;
     this._aborted = false;
 
-    if (!this.client) {
-      throw new Error('未配置 API Key。请在本机设置 DEEPSEEK_API_KEY 环境变量，或在应用设置中保存 apiKey。');
-    }
-
-    this.conversationHistory.push({
-      role: 'user',
-      content: userMessage,
-    });
-
-    if (this.conversationHistory.length > this.maxHistory) {
-      // 裁剪时保持 tool_calls/tool 消息配对
-      this.conversationHistory = this._trimHistory(this.conversationHistory, this.maxHistory);
-    }
-
-    const messages = [
-      { role: 'system', content: LAIN_SYSTEM_PROMPT },
-      ...this.conversationHistory,
-    ];
-
     try {
-      // 第一次调用：可能返回 function call 或直接回复
-      const response = await this.client.chat.completions.create({
-        model: this._getModel(),
-        messages: messages,
-        max_tokens: AI_CONFIG.MAX_TOKENS,
-        temperature: AI_CONFIG.TEMPERATURE,
-        tools: TOOLS,
-        tool_choice: 'auto',
+      await this._clientReady;
+
+      if (!this.client) {
+        throw new Error('未配置 API Key。请在本机设置 DEEPSEEK_API_KEY 环境变量，或在应用设置中保存 apiKey。');
+      }
+
+      this.conversationHistory.push({
+        role: 'user',
+        content: userMessage,
       });
 
-      const choice = response.choices[0];
-      const message = choice.message;
+      // 上下文裁剪（保持 tool_calls/tool 配对）
+      if (this.conversationHistory.length > this.maxHistory) {
+        this.conversationHistory = this._trimHistory(this.conversationHistory, this.maxHistory);
+      }
 
-      // 标准 OpenAI function calling 格式（优先）
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        this.conversationHistory.push(message);
-
-        // 遍历所有工具调用，逐个执行并推送 tool 消息
-        const toolResults = [];
-        for (const toolCall of message.tool_calls) {
-          if (this._aborted) break;
-
-          const funcName = toolCall.function.name;
-          const funcArgs = JSON.parse(toolCall.function.arguments);
-
-          onChunk(`\n...正在执行: ${this._getActionDescription(funcName, funcArgs)}\n`);
-
-          let toolResult;
-          try {
-            toolResult = await this._executeTool(funcName, funcArgs);
-          } catch (err) {
-            toolResult = { success: false, error: err.message };
-          }
-          toolResults.push({ id: toolCall.id, result: toolResult, name: funcName });
-
-          // 每个 tool_call 必须对应一条 tool 消息
-          this.conversationHistory.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(toolResult),
-          });
-        }
+      // 自旋循环：持续调用模型直到它不再返回工具调用
+      let isToolCalling = true;
+      while (isToolCalling) {
         if (this._aborted) { onChunk('\n\n_已停止。_'); return ''; }
 
-        // 第二次调用：让 AI 根据所有工具结果生成最终回复
-        try {
-          // 发送前校验消息序列
-          this._validateMessages('before second call');
+        this._validateMessages(`before API call (history length: ${this.conversationHistory.length})`);
 
-          const finalMessages = [
-            { role: 'system', content: LAIN_SYSTEM_PROMPT },
-            ...this.conversationHistory,
-          ];
+        const messages = [
+          { role: 'system', content: LAIN_SYSTEM_PROMPT },
+          ...this.conversationHistory,
+        ];
 
-          const stream = await this.client.chat.completions.create({
-            model: this._getModel(),
-            messages: finalMessages,
-            max_tokens: AI_CONFIG.MAX_TOKENS,
-            temperature: AI_CONFIG.TEMPERATURE,
-            stream: true,
-          });
-
-          let fullResponse = '';
-          for await (const chunk of stream) {
-            if (this._aborted) break;
-            const content = chunk.choices[0]?.delta?.content || '';
-            if (content) {
-              fullResponse += content;
-              onChunk(content);
-            }
-          }
-          if (this._aborted) { onChunk('\n\n_已停止。_'); return fullResponse; }
-
-          if (!fullResponse.trim()) {
-            // 汇总所有工具结果
-            fullResponse = toolResults
-              .map(tr => this._formatToolResult(tr.name, tr.result))
-              .join('\n');
-            for (let i = 0; i < fullResponse.length; i++) {
-              onChunk(fullResponse[i]);
-              await new Promise(r => setTimeout(r, 10));
-            }
-          }
-
-          this.conversationHistory.push({
-            role: 'assistant',
-            content: fullResponse,
-          });
-
-          return fullResponse;
-        } catch (streamErr) {
-          console.error('Second API call failed:', streamErr.message);
-          const fallback = toolResults
-            .map(tr => this._formatToolResult(tr.name, tr.result))
-            .join('\n');
-          this.conversationHistory.push({
-            role: 'assistant',
-            content: fallback,
-          });
-          for (let i = 0; i < fallback.length; i++) {
-            onChunk(fallback[i]);
-            await new Promise(r => setTimeout(r, 10));
-          }
-          return fallback;
-        }
-      } else {
-        // 检查文本格式工具调用（DSML 等非标准格式）
-        const textToolCalls = this._parseTextToolCalls(message.content);
-        if (textToolCalls.length > 0) {
-          return await this._handleTextToolCalls(textToolCalls, onChunk, message.content);
-        }
-
-        // AI 直接回复文字（过滤掉 DSML 标签）
-        const content = this._stripDSML(message.content || '');
-        this.conversationHistory.push({
-          role: 'assistant',
-          content: content,
+        const response = await this.client.chat.completions.create({
+          model: this._getModel(),
+          messages,
+          max_tokens: AI_CONFIG.MAX_TOKENS,
+          temperature: AI_CONFIG.TEMPERATURE,
+          tools: TOOLS,
+          tool_choice: 'auto',
         });
 
-        for (let i = 0; i < content.length; i++) {
-          if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
-          onChunk(content[i]);
-          await new Promise(r => setTimeout(r, 15));
+        const choice = response.choices[0];
+        const message = choice.message;
+
+        // 标准 function calling 格式
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          this.conversationHistory.push(message);
+
+          for (const toolCall of message.tool_calls) {
+            if (this._aborted) break;
+
+            const funcName = toolCall.function.name;
+            const funcArgs = JSON.parse(toolCall.function.arguments);
+
+            onChunk(`\n...正在执行: ${this._getActionDescription(funcName, funcArgs)}\n`);
+
+            let toolResult;
+            try {
+              toolResult = await this._executeTool(funcName, funcArgs, onChunk);
+            } catch (err) {
+              toolResult = { success: false, error: err.message };
+            }
+
+            this.conversationHistory.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify(toolResult),
+            });
+
+            // 输出工具执行结果
+            const resultText = this._formatToolResult(funcName, toolResult);
+            if (resultText.length > 200) {
+              onChunk(resultText.substring(0, 200) + '...\n');
+            } else {
+              onChunk(resultText + '\n');
+            }
+          }
+
+          if (this._aborted) { onChunk('\n\n_已停止。_'); return ''; }
+          // 继续循环，让模型基于工具结果生成下一步
+          continue;
         }
 
-        return content;
+        // DSML 文本格式工具调用（兜底）
+        const textToolCalls = this._parseTextToolCalls(message.content);
+        if (textToolCalls.length > 0) {
+          this.conversationHistory.push({
+            role: 'assistant',
+            content: `[tool_calls:${textToolCalls.map(tc => tc.name).join(',')}]`,
+          });
+
+          for (const tc of textToolCalls) {
+            if (this._aborted) break;
+            onChunk(`\n...正在执行: ${this._getActionDescription(tc.name, tc.args)}\n`);
+
+            let toolResult;
+            try {
+              toolResult = await this._executeTool(tc.name, tc.args, onChunk);
+            } catch (err) {
+              toolResult = { success: false, error: err.message };
+            }
+
+            const resultText = this._formatToolResult(tc.name, toolResult);
+            if (resultText.length > 200) {
+              onChunk(resultText.substring(0, 200) + '...\n');
+            } else {
+              onChunk(resultText + '\n');
+            }
+
+            // DSML 没有 tool_call_id，用 name 模拟
+            this.conversationHistory.push({
+              role: 'tool',
+              tool_call_id: `dsml_${tc.name}_${Date.now()}`,
+              content: JSON.stringify(toolResult),
+            });
+          }
+
+          if (this._aborted) { onChunk('\n\n_已停止。_'); return ''; }
+          continue;
+        }
+
+        // 无工具调用：流式输出最终文本回复
+        isToolCalling = false;
+
+        // 输出模型在工具调用前写的说明文字（DSML 前缀）
+        const prefix = message.content ? this._stripDSML(message.content) : '';
+        if (prefix) {
+          onChunk(prefix);
+        }
+
+        this.conversationHistory.push({
+          role: 'assistant',
+          content: message.content || '',
+        });
+
+        // 如果模型有内容且非流式，做打字效果
+        if (message.content) {
+          // content 已经通过 onChunk 发送了 prefix，无需再发
+        }
+
+        return message.content || '';
       }
+
+      return '';
     } catch (error) {
       console.error('AI Engine Error:', error);
-      this.conversationHistory.pop();
+      if (this.conversationHistory.length > 0 && this.conversationHistory[this.conversationHistory.length - 1].role === 'user') {
+        this.conversationHistory.pop();
+      }
       throw new Error(this._formatAPIError(error));
+    } finally {
+      this._isProcessing = false;
     }
   }
 
@@ -596,7 +600,14 @@ class AIEngine {
   /**
    * 执行工具调用
    */
-  async _executeTool(funcName, args) {
+  async _executeTool(funcName, args, onChunk) {
+    const withProgress = {
+      ...args,
+      onProgress: (logLine) => {
+        if (onChunk) onChunk(`  ${logLine}\n`);
+      },
+    };
+
     // 删除操作需要用户确认
     if (funcName === 'delete_file') {
       const confirmed = await this._requestUserConfirmation(
@@ -605,21 +616,20 @@ class AIEngine {
       if (!confirmed) {
         return { success: false, message: '用户取消了删除操作', cancelled: true };
       }
-      return await this.systemControl.execute({ type: 'delete_confirmed', params: args });
+      return await this.systemControl.execute({ type: 'delete_confirmed', params: withProgress });
     }
 
     // run_command 可能需要确认（写入系统盘）
     if (funcName === 'run_command') {
-      const result = await this.systemControl.execute({
+      return await this.systemControl.execute({
         type: 'run_command',
-        params: args,
+        params: withProgress,
         confirmCallback: (msg) => this._requestUserConfirmation(msg),
       });
-      return result;
     }
 
     // 其他操作直接执行
-    return await this.systemControl.execute({ type: funcName, params: args });
+    return await this.systemControl.execute({ type: funcName, params: withProgress });
   }
 
   /**

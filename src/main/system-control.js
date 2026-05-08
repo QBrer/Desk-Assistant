@@ -113,8 +113,11 @@ class SystemControl {
       return this.runPythonFile(pythonScript.filePath, { args: pythonScript.args });
     }
 
+    // 强制 PowerShell 使用 UTF-8，修复中文路径乱码
+    const utf8Prefix = '$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ';
+
     return new Promise((resolve) => {
-      exec(cmd, {
+      exec(utf8Prefix + cmd, {
         shell: 'powershell.exe',
         cwd: this.basePath,
         encoding: 'utf8',
@@ -146,8 +149,7 @@ class SystemControl {
       // === 禁止：删除（任何位置，绝对禁止）===
       { pattern: /\b(remove-item|rm\s|del\s|erase\s|rmdir\s|rd\s|wipe|shred|sdelete)\b/i, reason: '已拦截删除命令。删除只能通过 delete_file 工具在 lain_workspace 内操作。' },
       { pattern: /\b(rm\s+-rf|rm\s+-r\s|del\s+\/f\s+\/s|del\s+\/s\s+\/q)\b/i, reason: '已拦截强制递归删除。' },
-      // === 禁止：移动/重命名（可能造成数据丢失）===
-      { pattern: /\b(move-item|rename-item)\b/i, reason: '已拦截移动/重命名。请先复制到 lain_workspace 再操作。' },
+      // 注意：move-item、rename-item 已解禁，允许在工作区内操作
       // === 禁止：修改系统 ===
       { pattern: /\b(format-volume|format\s|diskpart|bcdedit|bootrec|cipher\s+\/w)\b/i, reason: '已拦截磁盘/启动配置修改。' },
       { pattern: /\b(reg\s+(delete|add|export|import|load|unload|restore|save)|set-itemproperty|new-itemproperty|remove-itemproperty)\b/i, reason: '已拦截注册表修改。' },
@@ -240,8 +242,8 @@ class SystemControl {
     }
 
     const blockedPatterns = [
-      // 删除/移动文件
-      { pattern: /\b(os\.(remove|unlink|rmdir|removedirs|rename|replace)|shutil\.(rmtree|move)|Path\s*\([^)]*\)\.(unlink|rmdir))\b/i, reason: '已拦截包含删除/移动文件的 Python 脚本。' },
+      // 删除文件（移动/重命名已解禁）
+      { pattern: /\b(os\.(remove|unlink|rmdir|removedirs|replace)|shutil\.(rmtree)|Path\s*\([^)]*\)\.(unlink|rmdir))\b/i, reason: '已拦截包含删除文件的 Python 脚本。' },
       // 启动子进程/系统调用
       { pattern: /\b(os\.(system|popen|execl|execle|execlp|execlpe|execv|execve|execvp|execvpe|spawnl|spawnle|spawnlp|spawnlpe|spawnv|spawnve|spawnvp|spawnvpe)|subprocess\.)\b/i, reason: '已拦截包含系统调用的 Python 脚本。' },
       // 写入文件
