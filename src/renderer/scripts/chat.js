@@ -204,7 +204,20 @@ class ChatManager {
     if (!this.currentStreamElement) return;
 
     this.streamContent += chunk;
+    this._ttsBuffer = (this._ttsBuffer || '') + chunk;
     window.character?.setState('talking');
+
+    // 边回复边语音：检测到完整句子就送入 TTS
+    const ends = /[。！？.!?\n]/;
+    const lastEnd = Math.max(
+      ...[...this._ttsBuffer.matchAll(new RegExp(ends, 'g'))].map(m => m.index)
+    );
+    if (lastEnd > 0) {
+      const sentence = this._ttsBuffer.substring(0, lastEnd + 1);
+      const remaining = this._ttsBuffer.substring(lastEnd + 1);
+      this._ttsBuffer = remaining;
+      window.voiceManager?.enqueue(sentence);
+    }
 
     const textEl = this.currentStreamElement.querySelector('.message-text');
     if (textEl) {
@@ -238,7 +251,11 @@ class ChatManager {
 
     // 角色回到待机
     window.character?.setState('idle');
-    window.voiceManager?.speak(finalText);
+    // 把缓冲区剩余文本送入 TTS
+    if (this._ttsBuffer && this._ttsBuffer.trim()) {
+      window.voiceManager?.enqueue(this._ttsBuffer);
+    }
+    this._ttsBuffer = '';
     this._scrollToBottom();
   }
 

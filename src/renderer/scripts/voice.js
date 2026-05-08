@@ -20,6 +20,8 @@ class VoiceManager {
     this.isSpeaking = false;
     this._audioContext = null;
     this._currentSource = null;
+    this._ttsQueue = [];
+    this._ttsPlaying = false;
 
     this._setupSpeechSynthesis();
     this._setupRecording();
@@ -218,10 +220,71 @@ class VoiceManager {
   // ————————— 语音合成（输出） —————————
 
   /**
+   * 流式 TTS：将文本片段加入队列，逐句播放
+   * 新片段不会打断当前正在播放的句子
+   */
+  enqueue(text) {
+    if (!this.autoSpeak || !text) return;
+    const cleanText = this._cleanTextForSpeech(text);
+    const sentences = this._splitSentences(cleanText);
+    for (const s of sentences) {
+      if (s) this._ttsQueue.push(s);
+    }
+    if (!this._ttsPlaying) {
+      this._processTTSQueue();
+    }
+  }
+
+  /**
+   * 播放队列中的句子（不打断，顺序播放）
+   */
+  async _processTTSQueue() {
+    this._ttsPlaying = true;
+    this.isSpeaking = true;
+    this._updateSpeakingUI(true);
+    window.character?.setState('talking');
+
+    while (this._ttsQueue.length > 0) {
+      if (!this.isSpeaking) break;
+      const sentence = this._ttsQueue.shift();
+      if (!sentence) continue;
+
+      if (this.ttsReady && window.electronAPI) {
+        try {
+          const lang = this._detectLang(sentence);
+          const result = await window.electronAPI.ttsSynthesize(sentence, lang);
+          if (result && result.success && result.audio) {
+            const audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
+            await this._playAudioBuffer(audioData.buffer);
+          }
+        } catch (err) {
+          console.warn('[Voice] Queue sentence error:', err.message);
+        }
+      } else {
+        this._speakWithBrowser(sentence);
+        // 浏览器 TTS 不是异步等待的，加延迟
+        await new Promise(r => setTimeout(r, sentence.length * 50 + 500));
+      }
+    }
+
+    this.isSpeaking = false;
+    this._ttsPlaying = false;
+    this._updateSpeakingUI(false);
+    window.character?.setState('idle');
+  }
+
+  /**
    * 朗读文本。优先使用 GPT-SoVITS，不可用则 fallback 到浏览器。
    * @param {string} text - AI 回复的原始文本
    */
   async speak(text) {
+    if (!this.autoSpeak || !text) return;
+    const cleanText = this._cleanTextForSpeech(text);
+    if (!cleanText) return;
+    this.stopSpeaking();
+    this._ttsQueue = [cleanText];
+    this._processTTSQueue();
+  }
     if (!this.autoSpeak || !text) return;
 
     const cleanText = this._cleanTextForSpeech(text);
@@ -351,6 +414,10 @@ class VoiceManager {
    * 停止播放
    */
   stopSpeaking() {
+    // 清空队列
+    this._ttsQueue = [];
+    this._ttsPlaying = false;
+
     // 停止 GPT-SoVITS 播放
     if (this._currentSource) {
       try {

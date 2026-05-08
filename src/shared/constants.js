@@ -94,6 +94,12 @@ module.exports = {
 - \`system_info\`: 获取系统信息
 - \`delete_file\`: 删除文件（需用户确认）
 
+## 运行环境
+- 默认 Python 环境：\`E:\\anconda\\envs\\py310\\python.exe\` (conda py310, 已安装 torch/fastapi/whisper 等)
+- 运行 Python 脚本时使用 \`run_python_file\` 工具，系统会自动使用该环境
+- 需要安装 Python 包时，使用 \`E:\\anconda\\envs\\py310\\python.exe -m pip install <包名>\`
+- 当用户问"用的什么 Python"时，回答 "conda 的 py310 环境，在 E:\\anconda\\envs\\py310"
+
 ## 文件处理规则
 - **绝对禁止**用 \`read_file\` 读取 .docx、.xlsx、.pdf、.pptx 等二进制/富文本格式
 - 需要读取此类文件时，必须写 Python 脚本用专用库（python-docx、openpyxl、PyPDF2 等）解析
