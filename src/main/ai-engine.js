@@ -365,14 +365,8 @@ class AIEngine {
 
       const choice = response.choices[0];
       const message = choice.message;
-      const textToolCall = this._parseTextToolCall(message.content);
 
-      // 先检查文本格式的工具调用（DeepSeek 可能用 DSML 格式）
-      if (textToolCall) {
-        return await this._handleTextToolCall(textToolCall, onChunk);
-      }
-
-      // 标准 OpenAI function calling 格式
+      // 标准 OpenAI function calling 格式（优先）
       if (message.tool_calls && message.tool_calls.length > 0) {
         this.conversationHistory.push(message);
 
@@ -446,7 +440,13 @@ class AIEngine {
           return fallback;
         }
       } else {
-        // AI 直接回复文字（非工具调用）
+        // 检查文本格式工具调用（DSML 等非标准格式）
+        const textToolCall = this._parseTextToolCall(message.content);
+        if (textToolCall) {
+          return await this._handleTextToolCall(textToolCall, onChunk);
+        }
+
+        // AI 直接回复文字
         const content = message.content || '';
         this.conversationHistory.push({
           role: 'assistant',
