@@ -1,17 +1,17 @@
 """
 本地 Whisper 语音识别 API 服务
-被 Electron 主进程调用，使用 openai-whisper tiny 模型在 CPU 上运行。
+被 Electron 主进程调用，使用 openai-whisper base 模型在 CPU 上运行。
 """
 import sys
 import os
 import tempfile
 import time
-import torch
 from fastapi import FastAPI, UploadFile, File
 import uvicorn
 import whisper
+from zhconv import convert
 
-MODEL_SIZE = "tiny"
+MODEL_SIZE = "base"
 DEVICE = "cpu"
 
 print(f"[STT] Loading openai-whisper model: {MODEL_SIZE} on {DEVICE}...")
@@ -23,18 +23,22 @@ app = FastAPI()
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
-    """接收 WAV 音频文件，返回识别文本"""
+    """接收 WAV 音频文件，返回识别文本（简体中文）"""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
 
     try:
-        result = model.transcribe(tmp_path, language="zh")
+        result = model.transcribe(
+            tmp_path,
+            language="zh",
+            temperature=0.0,
+        )
         text = result["text"].strip()
-        lang = result.get("language", "zh")
-        return {"text": text, "language": lang}
+        # 繁简转换
+        text = convert(text, "zh-hans")
+        return {"text": text, "language": result.get("language", "zh")}
     finally:
-        # 等一小段时间确保 model 释放文件句柄
         time.sleep(0.1)
         try:
             os.unlink(tmp_path)

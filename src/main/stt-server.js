@@ -14,7 +14,7 @@ const STT_HOST = '127.0.0.1';
 const STT_BASE_URL = `http://${STT_HOST}:${STT_PORT}`;
 
 const HEALTH_CHECK_INTERVAL = 15000;
-const STARTUP_TIMEOUT = 300000; // 首次需下载模型，最多等 5 分钟
+const STARTUP_TIMEOUT = 600000; // base模型~142MB，首次下载最多等10分钟
 
 const MODEL_DIR = path.join(__dirname, '..', '..', 'lain-voice-model');
 
