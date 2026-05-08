@@ -81,15 +81,25 @@ class ChatManager {
   }
 
   /**
-   * 发送消息
+   * 发送消息 / 停止生成
    */
   sendMessage() {
-    if (this.isStreaming) return;
+    if (this.isStreaming) {
+      this.stopStreaming();
+      return;
+    }
 
     const text = this.input?.value?.trim();
     if (!text) return;
 
     this.sendText(text);
+  }
+
+  stopStreaming() {
+    if (!this.isStreaming) return;
+    window.electronAPI?.stopGeneration();
+    this._endStream();
+    this.addSystemMessage('已停止生成。');
   }
 
   sendText(text) {
@@ -155,7 +165,9 @@ class ChatManager {
   _startStream() {
     this.isStreaming = true;
     this.streamContent = '';
-    this.sendBtn && (this.sendBtn.disabled = true);
+    this.sendBtn && (this.sendBtn.disabled = false);
+    this.sendBtn?.classList.add('stop-btn');
+    this.sendBtn?.setAttribute('title', '停止生成');
 
     // 切换角色状态
     window.character?.setState('thinking');
@@ -212,6 +224,8 @@ class ChatManager {
     this.currentStreamElement = null;
     this.streamContent = '';
     this.sendBtn && (this.sendBtn.disabled = false);
+    this.sendBtn?.classList.remove('stop-btn');
+    this.sendBtn?.setAttribute('title', '发送');
 
     // 角色回到待机
     window.character?.setState('idle');

@@ -31,6 +31,7 @@ module.exports = {
     AI_STREAM_CHUNK: 'ai:stream-chunk',
     AI_STREAM_END: 'ai:stream-end',
     AI_STREAM_ERROR: 'ai:stream-error',
+    AI_STOP: 'ai:stop',
 
     // 系统控制
     SYS_EXECUTE: 'sys:execute',

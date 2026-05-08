@@ -60,25 +60,25 @@
 
 /* 说话状态 — 更活跃的动画 */
 .character-img.talking {
-  animation: characterTalk 0.5s ease-in-out infinite;
+  animation: characterTalk 1.2s ease-in-out infinite;
   filter: drop-shadow(0 0 25px rgba(0, 212, 255, 0.2));
 }
 
 @keyframes characterTalk {
   0%, 100% { transform: translateY(0px) scale(1); }
-  25% { transform: translateY(-3px) scale(1.005); }
+  25% { transform: translateY(-2px) scale(1.003); }
   75% { transform: translateY(1px) scale(0.998); }
 }
 
 /* 思考状态 */
 .character-img.thinking {
-  animation: characterThink 2s ease-in-out infinite;
+  animation: characterThink 3s ease-in-out infinite;
   filter: drop-shadow(0 0 30px rgba(139, 0, 255, 0.2)) brightness(0.9);
 }
 
 @keyframes characterThink {
   0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-5px) rotate(0.5deg); }
+  50% { transform: translateY(-3px) rotate(0.3deg); }
 }
 
 /* 错误状态 */

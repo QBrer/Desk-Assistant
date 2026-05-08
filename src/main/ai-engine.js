@@ -232,7 +232,12 @@ class AIEngine {
     this.conversationHistory = [];
     this.maxHistory = 30;
     this.client = null;
+    this._aborted = false;
     this._clientReady = this._initClient();
+  }
+
+  abort() {
+    this._aborted = true;
   }
 
   async _initClient() {
@@ -327,6 +332,7 @@ class AIEngine {
    */
   async sendMessage(userMessage, onChunk) {
     await this._clientReady;
+    this._aborted = false;
 
     if (!this.client) {
       throw new Error('未配置 API Key。请在本机设置 DEEPSEEK_API_KEY 环境变量，或在应用设置中保存 apiKey。');
@@ -399,12 +405,14 @@ class AIEngine {
 
         let fullResponse = '';
         for await (const chunk of stream) {
+          if (this._aborted) break;
           const content = chunk.choices[0]?.delta?.content || '';
           if (content) {
             fullResponse += content;
             onChunk(content);
           }
         }
+        if (this._aborted) { onChunk('\n\n_已停止。_'); return fullResponse; }
 
         this.conversationHistory.push({
           role: 'assistant',
@@ -427,9 +435,11 @@ class AIEngine {
         const finalText = this._formatToolResult(funcName, toolResult);
 
         for (let i = 0; i < finalText.length; i++) {
+          if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
           onChunk(finalText[i]);
           await new Promise(r => setTimeout(r, 10));
         }
+        if (this._aborted) return finalText;
 
         this.conversationHistory.push({
           role: 'assistant',
@@ -448,6 +458,7 @@ class AIEngine {
 
         // 模拟流式输出（逐字符）
         for (let i = 0; i < content.length; i++) {
+          if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
           onChunk(content[i]);
           await new Promise(r => setTimeout(r, 15));
         }

@@ -357,6 +357,18 @@
   transform: none;
 }
 
+.send-btn.stop-btn {
+  background: linear-gradient(135deg, rgba(255, 0, 64, 0.25), rgba(255, 0, 102, 0.25));
+  border-color: rgba(255, 0, 64, 0.5);
+  color: var(--neon-pink);
+  animation: stopPulse 1s ease-in-out infinite;
+}
+
+@keyframes stopPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 0, 64, 0); }
+  50% { box-shadow: 0 0 12px rgba(255, 0, 64, 0.4); }
+}
+
 .voice-btn {
   background: rgba(0, 212, 255, 0.08);
   border-color: rgba(0, 212, 255, 0.25);

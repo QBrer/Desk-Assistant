@@ -153,6 +153,11 @@ function setupIPC() {
     }
   });
 
+  // AI 停止生成
+  ipcMain.on(IPC_CHANNELS.AI_STOP, () => {
+    if (aiEngine) aiEngine.abort();
+  });
+
   // 系统控制
   ipcMain.handle(IPC_CHANNELS.SYS_EXECUTE, async (event, command) => {
     return await systemControl.execute(command);

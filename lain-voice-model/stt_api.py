@@ -31,7 +31,7 @@ async def transcribe(file: UploadFile = File(...)):
     try:
         result = model.transcribe(
             tmp_path,
-            language="zh",
+            language=None,   # 自动检测语言，支持中英混合
             temperature=0.0,
         )
         text = result["text"].strip()
