@@ -86,11 +86,17 @@ class ChatManager {
   sendMessage() {
     if (this.isStreaming) {
       this.stopStreaming();
+      // 等一小段时间让后端清理状态再发新消息
+      setTimeout(() => this._sendInputText(), 500);
       return;
     }
 
+    this._sendInputText();
+  }
+
+  _sendInputText() {
     const text = this.input?.value?.trim();
-    if (!text) return;
+    if (!text || this.isStreaming) return;
 
     this.sendText(text);
   }
@@ -168,6 +174,9 @@ class ChatManager {
     this.sendBtn && (this.sendBtn.disabled = false);
     this.sendBtn?.classList.add('stop-btn');
     this.sendBtn?.setAttribute('title', '停止生成');
+
+    // 停止当前正在播放的语音
+    window.voiceManager?.stopSpeaking();
 
     // 切换角色状态
     window.character?.setState('thinking');

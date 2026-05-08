@@ -69,18 +69,18 @@ class TTSServer {
       ], {
         cwd: MODEL_DIR,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
         windowsHide: true,
       });
 
       // 日志
       this.process.stdout?.on('data', (data) => {
-        const msg = data.toString().trim();
+        const msg = data.toString('utf-8').trim();
         if (msg) console.log(`[TTS stdout] ${msg}`);
       });
 
       this.process.stderr?.on('data', (data) => {
-        const msg = data.toString().trim();
+        const msg = data.toString('utf-8').trim();
         if (msg) console.log(`[TTS stderr] ${msg}`);
       });
 

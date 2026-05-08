@@ -4,7 +4,7 @@ module.exports = {
   AI_CONFIG: {
     BASE_URL: 'https://api.deepseek.com',
     MODEL: 'deepseek-v4-pro',
-    MAX_TOKENS: 4096,
+    MAX_TOKENS: 100000,
     TEMPERATURE: 0.7,
   },
 

@@ -50,17 +50,17 @@ class STTServer {
       ], {
         cwd: MODEL_DIR,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, HF_ENDPOINT: 'https://hf-mirror.com', KMP_DUPLICATE_LIB_OK: 'TRUE' },
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8', HF_ENDPOINT: 'https://hf-mirror.com', KMP_DUPLICATE_LIB_OK: 'TRUE' },
         windowsHide: true,
       });
 
       this.process.stdout?.on('data', (data) => {
-        const msg = data.toString().trim();
+        const msg = data.toString('utf-8').trim();
         if (msg) console.log(`[STT stdout] ${msg}`);
       });
 
       this.process.stderr?.on('data', (data) => {
-        const msg = data.toString().trim();
+        const msg = data.toString('utf-8').trim();
         if (msg) console.log(`[STT stderr] ${msg}`);
       });
 

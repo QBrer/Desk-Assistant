@@ -230,7 +230,7 @@ class AIEngine {
     this.systemControl = systemControl;
     this.mainWindow = mainWindow;
     this.conversationHistory = [];
-    this.maxHistory = 30;
+    this.maxHistory = Infinity;
     this.client = null;
     this._aborted = false;
     this._clientReady = this._initClient();
@@ -300,21 +300,70 @@ class AIEngine {
       .trim();
   }
 
-  _parseTextToolCall(content) {
-    if (!content || typeof content !== 'string') return null;
-    if (!content.includes('tool_calls') && !content.includes('invoke name=')) return null;
+  _parseTextToolCalls(content) {
+    if (!content || typeof content !== 'string') return [];
+    if (!content.includes('tool_calls') && !content.includes('invoke name=')) return [];
 
-    const invokeMatch = content.match(/invoke\s+name="([^"]+)"/i);
-    if (!invokeMatch) return null;
-
-    const params = {};
-    const paramRegex = /parameter\s+name="([^"]+)"[^>]*>([^<]*)/gi;
-    let match;
-    while ((match = paramRegex.exec(content)) !== null) {
-      params[match[1]] = this._coerceToolParam(match[2].trim());
+    // 匹配所有 invoke 块（支持多个工具调用）
+    const results = [];
+    const invokeRegex = /<invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/invoke\s*>/gi;
+    let invokeMatch;
+    while ((invokeMatch = invokeRegex.exec(content)) !== null) {
+      const name = invokeMatch[1];
+      const inner = invokeMatch[2];
+      const params = {};
+      const paramRegex = /<parameter\s+name="([^"]+)"[^>]*>([^<]*)<\/parameter\s*>/gi;
+      let paramMatch;
+      while ((paramMatch = paramRegex.exec(inner)) !== null) {
+        params[paramMatch[1]] = this._coerceToolParam(paramMatch[2].trim());
+      }
+      if (name) results.push({ name, args: params });
     }
 
-    return { name: invokeMatch[1], args: params };
+    // 兼容自闭合/无闭合标签的格式
+    if (results.length === 0) {
+      const simpleMatch = content.match(/invoke\s+name="([^"]+)"/i);
+      if (simpleMatch) {
+        const params = {};
+        const paramRegex = /parameter\s+name="([^"]+)"[^>]*>([^<]*)/gi;
+        let m;
+        while ((m = paramRegex.exec(content)) !== null) {
+          params[m[1]] = this._coerceToolParam(m[2].trim());
+        }
+        results.push({ name: simpleMatch[1], args: params });
+      }
+    }
+
+    return results;
+  }
+
+  _trimHistory(history, maxLen) {
+    if (history.length <= maxLen) return history;
+
+    let start = history.length - maxLen;
+    // 如果截断后第一条是 tool 消息，向前多保留一条（其对应的 assistant tool_calls）
+    if (start > 0 && history[start]?.role === 'tool') {
+      start = Math.max(0, start - 1);
+    }
+    return history.slice(start);
+  }
+
+  _validateMessages(context) {
+    const msgs = this.conversationHistory;
+    for (let i = 0; i < msgs.length; i++) {
+      const msg = msgs[i];
+      if (msg.role === 'tool') {
+        // tool 消息前必须是 assistant 且含有 tool_calls
+        const prev = msgs[i - 1];
+        if (!prev || prev.role !== 'assistant' || !prev.tool_calls) {
+          console.error(`[VALIDATE ${context}] 错误: tool 消息(i=${i})前缺少 assistant(tool_calls)`);
+        }
+        // 必须有 tool_call_id
+        if (!msg.tool_call_id) {
+          console.error(`[VALIDATE ${context}] 错误: tool 消息(i=${i})缺少 tool_call_id`);
+        }
+      }
+    }
   }
 
   _coerceToolParam(value) {
@@ -352,7 +401,8 @@ class AIEngine {
     });
 
     if (this.conversationHistory.length > this.maxHistory) {
-      this.conversationHistory = this.conversationHistory.slice(-this.maxHistory);
+      // 裁剪时保持 tool_calls/tool 消息配对
+      this.conversationHistory = this._trimHistory(this.conversationHistory, this.maxHistory);
     }
 
     const messages = [
@@ -378,22 +428,38 @@ class AIEngine {
       if (message.tool_calls && message.tool_calls.length > 0) {
         this.conversationHistory.push(message);
 
-        const toolCall = message.tool_calls[0];
-        const funcName = toolCall.function.name;
-        const funcArgs = JSON.parse(toolCall.function.arguments);
+        // 遍历所有工具调用，逐个执行并推送 tool 消息
+        const toolResults = [];
+        for (const toolCall of message.tool_calls) {
+          if (this._aborted) break;
 
-        onChunk(`...正在执行操作: ${this._getActionDescription(funcName, funcArgs)}\n\n`);
+          const funcName = toolCall.function.name;
+          const funcArgs = JSON.parse(toolCall.function.arguments);
 
-        const toolResult = await this._executeTool(funcName, funcArgs);
+          onChunk(`\n...正在执行: ${this._getActionDescription(funcName, funcArgs)}\n`);
 
-        this.conversationHistory.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(toolResult),
-        });
+          let toolResult;
+          try {
+            toolResult = await this._executeTool(funcName, funcArgs);
+          } catch (err) {
+            toolResult = { success: false, error: err.message };
+          }
+          toolResults.push({ id: toolCall.id, result: toolResult, name: funcName });
 
-        // 第二次调用：让 AI 根据工具结果生成最终回复（流式）
+          // 每个 tool_call 必须对应一条 tool 消息
+          this.conversationHistory.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(toolResult),
+          });
+        }
+        if (this._aborted) { onChunk('\n\n_已停止。_'); return ''; }
+
+        // 第二次调用：让 AI 根据所有工具结果生成最终回复
         try {
+          // 发送前校验消息序列
+          this._validateMessages('before second call');
+
           const finalMessages = [
             { role: 'system', content: LAIN_SYSTEM_PROMPT },
             ...this.conversationHistory,
@@ -418,9 +484,11 @@ class AIEngine {
           }
           if (this._aborted) { onChunk('\n\n_已停止。_'); return fullResponse; }
 
-          // 如果流式没返回内容，用工具结果兜底
           if (!fullResponse.trim()) {
-            fullResponse = this._formatToolResult(funcName, toolResult);
+            // 汇总所有工具结果
+            fullResponse = toolResults
+              .map(tr => this._formatToolResult(tr.name, tr.result))
+              .join('\n');
             for (let i = 0; i < fullResponse.length; i++) {
               onChunk(fullResponse[i]);
               await new Promise(r => setTimeout(r, 10));
@@ -434,9 +502,10 @@ class AIEngine {
 
           return fullResponse;
         } catch (streamErr) {
-          // 第二次调用失败，直接用工具结果兜底
           console.error('Second API call failed:', streamErr.message);
-          const fallback = this._formatToolResult(funcName, toolResult);
+          const fallback = toolResults
+            .map(tr => this._formatToolResult(tr.name, tr.result))
+            .join('\n');
           this.conversationHistory.push({
             role: 'assistant',
             content: fallback,
@@ -449,9 +518,9 @@ class AIEngine {
         }
       } else {
         // 检查文本格式工具调用（DSML 等非标准格式）
-        const textToolCall = this._parseTextToolCall(message.content);
-        if (textToolCall) {
-          return await this._handleTextToolCall(textToolCall, onChunk);
+        const textToolCalls = this._parseTextToolCalls(message.content);
+        if (textToolCalls.length > 0) {
+          return await this._handleTextToolCalls(textToolCalls, onChunk, message.content);
         }
 
         // AI 直接回复文字（过滤掉 DSML 标签）
@@ -476,43 +545,52 @@ class AIEngine {
     }
   }
 
-  async _handleTextToolCall(textToolCall, onChunk) {
-    const funcName = textToolCall.name;
-    const funcArgs = textToolCall.args;
+  async _handleTextToolCalls(toolCalls, onChunk, rawContent) {
+    // 提取 DSML 之前的文本
+    const prefix = rawContent ? this._stripDSML(rawContent.split(/<invoke|<tool_calls/i)[0]) : '';
+    if (prefix) {
+      onChunk(prefix + '\n');
+    }
 
+    const allResults = [];
+    for (const tc of toolCalls) {
+      if (this._aborted) break;
+
+      const funcName = tc.name;
+      const funcArgs = tc.args;
+
+      this.conversationHistory.push({
+        role: 'assistant',
+        content: `[tool_call:${funcName}]`,
+      });
+
+      onChunk(`\n...正在执行: ${this._getActionDescription(funcName, funcArgs)}\n`);
+
+      try {
+        const toolResult = await this._executeTool(funcName, funcArgs);
+        const resultText = this._formatToolResult(funcName, toolResult);
+        allResults.push(resultText);
+
+        for (let i = 0; i < resultText.length; i++) {
+          if (this._aborted) break;
+          onChunk(resultText[i]);
+          await new Promise(r => setTimeout(r, 10));
+        }
+        onChunk('\n');
+      } catch (err) {
+        const errorText = `操作失败: ${err.message}`;
+        allResults.push(errorText);
+        onChunk(errorText);
+      }
+    }
+
+    const finalText = allResults.join('\n') || '操作已完成。';
     this.conversationHistory.push({
       role: 'assistant',
-      content: `[tool_call:${funcName}]`,
+      content: finalText,
     });
 
-    onChunk(`...正在执行操作: ${this._getActionDescription(funcName, funcArgs)}\n\n`);
-
-    try {
-      const toolResult = await this._executeTool(funcName, funcArgs);
-      const finalText = this._formatToolResult(funcName, toolResult);
-
-      for (let i = 0; i < finalText.length; i++) {
-        if (this._aborted) { onChunk('\n\n_已停止。_'); break; }
-        onChunk(finalText[i]);
-        await new Promise(r => setTimeout(r, 10));
-      }
-
-      this.conversationHistory.push({
-        role: 'assistant',
-        content: finalText,
-      });
-
-      return finalText;
-    } catch (err) {
-      console.error('Tool execution error:', err.message);
-      const errorText = `操作失败: ${err.message}`;
-      onChunk(errorText);
-      this.conversationHistory.push({
-        role: 'assistant',
-        content: errorText,
-      });
-      return errorText;
-    }
+    return finalText;
   }
 
   /**
