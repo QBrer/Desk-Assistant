@@ -168,12 +168,15 @@ class VoiceManager {
       const blob = new Blob(this._audioChunks, { type: 'audio/webm' });
       this._audioChunks = [];
 
-      // 转为 ArrayBuffer 发送给 STT
-      const arrayBuffer = await blob.arrayBuffer();
-      const uint8 = new Uint8Array(arrayBuffer);
-
       try {
-        const result = await window.electronAPI.sttTranscribe(Array.from(uint8));
+        // webm → AudioBuffer → WAV
+        const wavData = await this._convertToWav(blob);
+        if (!wavData) {
+          this.chatManager?.addSystemMessage('音频处理失败，请重试。');
+          return;
+        }
+
+        const result = await window.electronAPI.sttTranscribe(Array.from(new Uint8Array(wavData)));
         if (result && result.success && result.text) {
           if (this.input) {
             this.input.value = result.text;
@@ -378,6 +381,45 @@ class VoiceManager {
       .replace(/#{1,6}\s/g, '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  /**
+   * webm 音频 → 16kHz 16bit mono WAV ArrayBuffer
+   */
+  async _convertToWav(blob) {
+    if (!this._audioContext) {
+      this._audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this._audioContext.state === 'suspended') {
+      await this._audioContext.resume();
+    }
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await this._audioContext.decodeAudioData(arrayBuffer);
+
+    // 重采样到 16kHz mono
+    const targetRate = 16000;
+    const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * targetRate), targetRate);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start(0);
+    const resampled = await offlineCtx.startRendering();
+
+    const samples = resampled.getChannelData(0);
+    const wav = new ArrayBuffer(44 + samples.length * 2);
+    const v = new DataView(wav);
+    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+    writeStr(0, 'RIFF'); v.setUint32(4, wav.byteLength - 8, true);
+    writeStr(8, 'WAVE'); writeStr(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, 1, true); v.setUint32(24, targetRate, true);
+    v.setUint32(28, targetRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    writeStr(36, 'data'); v.setUint32(40, samples.length * 2, true);
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      v.setInt16(44 + i * 2, s * 0x7FFF | 0, true);
+    }
+    return wav;
   }
 
   /**

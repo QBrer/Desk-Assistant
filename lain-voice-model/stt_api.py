@@ -1,22 +1,21 @@
 """
 本地 Whisper 语音识别 API 服务
-被 Electron 主进程调用，使用 faster-whisper tiny 模型在 CPU 上运行。
+被 Electron 主进程调用，使用 openai-whisper tiny 模型在 CPU 上运行。
 """
 import sys
 import os
 import tempfile
+import time
+import torch
 from fastapi import FastAPI, UploadFile, File
 import uvicorn
+import whisper
 
-from faster_whisper import WhisperModel
-
-# CPU 上跑 tiny 模型，不跟 TTS 抢显存
 MODEL_SIZE = "tiny"
 DEVICE = "cpu"
-COMPUTE_TYPE = "int8"
 
-print(f"[STT] Loading faster-whisper model: {MODEL_SIZE} on {DEVICE}...")
-model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+print(f"[STT] Loading openai-whisper model: {MODEL_SIZE} on {DEVICE}...")
+model = whisper.load_model(MODEL_SIZE, device=DEVICE)
 print("[STT] Model loaded.")
 
 app = FastAPI()
@@ -30,11 +29,17 @@ async def transcribe(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        segments, info = model.transcribe(tmp_path, language="zh", beam_size=5)
-        text = "".join(seg.text for seg in segments).strip()
-        return {"text": text, "language": info.language}
+        result = model.transcribe(tmp_path, language="zh")
+        text = result["text"].strip()
+        lang = result.get("language", "zh")
+        return {"text": text, "language": lang}
     finally:
-        os.unlink(tmp_path)
+        # 等一小段时间确保 model 释放文件句柄
+        time.sleep(0.1)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

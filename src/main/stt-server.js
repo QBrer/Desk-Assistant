@@ -50,7 +50,7 @@ class STTServer {
       ], {
         cwd: MODEL_DIR,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, HF_ENDPOINT: 'https://hf-mirror.com' },
+        env: { ...process.env, HF_ENDPOINT: 'https://hf-mirror.com', KMP_DUPLICATE_LIB_OK: 'TRUE' },
         windowsHide: true,
       });
 
