@@ -248,8 +248,8 @@ class SystemControl {
       { pattern: /\b(Path\s*\([^)]*\)\.(write_text|write_bytes)|shutil\.(copy|copy2|copytree|make_archive))\b/i, reason: '已拦截包含文件写入的 Python 脚本。请使用受限的 write_file 工具。' },
       // 内嵌高危命令
       { pattern: /\b(remove-item|rm\s+|del\s+|rmdir\s+|format-volume|diskpart|reg\s+(delete|add)|takeown|icacls|schtasks)\b/i, reason: '已拦截包含高危命令的 Python 脚本。' },
-      // 下载+执行
-      { pattern: /\b(urllib\.request\.urlretrieve|requests\.get.*\bexec\b)/i, reason: '已拦截网络下载+执行模式。' },
+      // 下载+执行（仅拦截下载后立即执行的组合，允许单纯下载）
+      { pattern: /\b(urllib\.request\.urlretrieve|requests\.get|wget\.download).*(\bexec\b|\beval\b|\bos\.system\b|\bsubprocess\b)/i, reason: '已拦截网络下载后立即执行的模式。下载文件本身是允许的。' },
     ];
     // 允许读取/查看系统路径，不再拦截 c:\ 等路径引用
 
