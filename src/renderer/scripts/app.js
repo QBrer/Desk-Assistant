@@ -24,6 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 设置窗口控制
   setupWindowControls();
+  // 复制对话按钮
+  setupCopyButton();
 
   // 聚焦输入框
   const input = document.getElementById('chat-input');
@@ -37,6 +39,46 @@ document.addEventListener('DOMContentLoaded', () => {
 /**
  * 设置窗口控制按钮
  */
+function setupCopyButton() {
+  const btn = document.getElementById('copy-btn');
+  btn?.addEventListener('click', async () => {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    const lines = [];
+    const messages = container.querySelectorAll('.message-user, .message-lain');
+    messages.forEach((msg) => {
+      const textEl = msg.querySelector('.message-text');
+      if (!textEl) return;
+      const role = msg.classList.contains('message-user') ? '你' : '玲音';
+      const text = textEl.textContent.trim();
+      if (text) lines.push(`[${role}] ${text}`);
+    });
+
+    if (lines.length === 0) return;
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n\n'));
+      const orig = btn.getAttribute('title');
+      btn.setAttribute('title', '已复制!');
+      btn.style.color = 'var(--neon-green)';
+      setTimeout(() => {
+        btn.setAttribute('title', orig);
+        btn.style.color = '';
+      }, 1500);
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = lines.join('\n\n');
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  });
+}
+
 function setupWindowControls() {
   const btnMinimize = document.getElementById('btn-minimize');
   const btnClose = document.getElementById('btn-close');
