@@ -59,6 +59,19 @@ class TTSServer {
       return false;
     }
 
+    if (await this._healthPing()) {
+      console.log('[TTS] Existing GPT-SoVITS server detected, loading model weights...');
+      try {
+        await this._loadModelWeights();
+        this.isReady = true;
+        this.isStarting = false;
+        this._startHealthCheck();
+        return true;
+      } catch (err) {
+        console.error('[TTS] Existing server is not usable:', err.message);
+      }
+    }
+
     this._readyPromise = new Promise((resolve) => {
       console.log('[TTS] Starting GPT-SoVITS server...');
 

@@ -17,6 +17,7 @@ class VoiceManager {
 
     // GPT-SoVITS 状态
     this.ttsReady = false;
+    this.ttsStarting = false;
     this.isSpeaking = false;
     this._audioContext = null;
     this._currentSource = null;
@@ -38,6 +39,7 @@ class VoiceManager {
     window.electronAPI.onTTSReady(() => {
       console.log('[Voice] GPT-SoVITS TTS is ready!');
       this.ttsReady = true;
+      this.ttsStarting = false;
       this._updateSpeakBtnStyle();
     });
 
@@ -45,8 +47,12 @@ class VoiceManager {
     window.electronAPI.ttsStatus().then((status) => {
       if (status && status.ready) {
         this.ttsReady = true;
+        this.ttsStarting = false;
         this._updateSpeakBtnStyle();
         console.log('[Voice] GPT-SoVITS already running');
+      } else if (status && status.starting) {
+        this.ttsStarting = true;
+        this._updateSpeakBtnStyle();
       }
     });
   }
@@ -60,6 +66,9 @@ class VoiceManager {
     if (this.ttsReady) {
       this.speakBtn.setAttribute('title', '朗读回复 (玲音语音 · GPT-SoVITS)');
       this.speakBtn.classList.add('tts-lain');
+    } else if (this.ttsStarting) {
+      this.speakBtn.setAttribute('title', '朗读回复 (玲音语音启动中)');
+      this.speakBtn.classList.remove('tts-lain');
     } else {
       this.speakBtn.setAttribute('title', '朗读回复 (浏览器语音)');
       this.speakBtn.classList.remove('tts-lain');
@@ -178,6 +187,11 @@ class VoiceManager {
           return;
         }
 
+        if (wavData.byteLength < 32000) {
+          this.chatManager?.addSystemMessage('录音太短了，请再说一次。');
+          return;
+        }
+
         const result = await window.electronAPI.sttTranscribe(Array.from(new Uint8Array(wavData)));
         if (result && result.success && result.text) {
           if (this.input) {
@@ -193,7 +207,7 @@ class VoiceManager {
       }
     };
 
-    this._mediaRecorder.start();
+    this._mediaRecorder.start(250);
     this.isListening = true;
     this.micBtn?.classList.add('listening');
     window.character?.setState('thinking');
@@ -249,6 +263,8 @@ class VoiceManager {
       const sentence = this._ttsQueue.shift();
       if (!sentence) continue;
 
+      await this._waitForTTSReady(12000);
+
       if (this.ttsReady && window.electronAPI) {
         try {
           const lang = this._detectLang(sentence);
@@ -256,14 +272,16 @@ class VoiceManager {
           if (result && result.success && result.audio) {
             const audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
             await this._playAudioBuffer(audioData.buffer);
+          } else {
+            console.warn('[Voice] GPT-SoVITS returned no audio:', result?.error || 'unknown error');
+            await this._speakWithBrowserAsync(sentence);
           }
         } catch (err) {
           console.warn('[Voice] Queue sentence error:', err.message);
+          await this._speakWithBrowserAsync(sentence);
         }
       } else {
-        this._speakWithBrowser(sentence);
-        // 浏览器 TTS 不是异步等待的，加延迟
-        await new Promise(r => setTimeout(r, sentence.length * 50 + 500));
+        await this._speakWithBrowserAsync(sentence);
       }
     }
 
@@ -283,22 +301,7 @@ class VoiceManager {
     if (!cleanText) return;
     this.stopSpeaking();
     this._ttsQueue = [cleanText];
-    this._processTTSQueue();
-  }
-    if (!this.autoSpeak || !text) return;
-
-    const cleanText = this._cleanTextForSpeech(text);
-    if (!cleanText) return;
-
-    // 停止当前正在播放的语音
-    this.stopSpeaking();
-
-    // 优先 GPT-SoVITS
-    if (this.ttsReady && window.electronAPI) {
-      await this._speakWithGPTSoVITS(cleanText);
-    } else {
-      this._speakWithBrowser(cleanText);
-    }
+    await this._processTTSQueue();
   }
 
   /**
@@ -408,6 +411,30 @@ class VoiceManager {
 
     window.character?.setState('talking');
     window.speechSynthesis.speak(utterance);
+  }
+
+  _speakWithBrowserAsync(text) {
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)) {
+        resolve();
+        return;
+      }
+
+      this.isSpeaking = true;
+      this._updateSpeakingUI(true);
+      window.character?.setState('talking');
+
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = this.selectedVoice?.lang || 'zh-CN';
+      utterance.voice = this.selectedVoice;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.05;
+      utterance.volume = 0.9;
+      utterance.onend = resolve;
+      utterance.onerror = resolve;
+      window.speechSynthesis.speak(utterance);
+    });
   }
 
   /**
@@ -525,6 +552,27 @@ class VoiceManager {
     if (zhCount / total > 0.3) return 'zh';
     if (enCount / total > 0.5) return 'en';
     return 'auto';
+  }
+
+  async _waitForTTSReady(timeoutMs) {
+    if (this.ttsReady || !window.electronAPI) return this.ttsReady;
+
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const status = await window.electronAPI.ttsStatus();
+        this.ttsReady = !!status?.ready;
+        this.ttsStarting = !!status?.starting;
+        this._updateSpeakBtnStyle();
+        if (this.ttsReady) return true;
+      } catch (err) {
+        console.warn('[Voice] TTS status check failed:', err.message);
+        return false;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    return false;
   }
 
   /**

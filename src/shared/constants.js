@@ -1,10 +1,10 @@
 // 共享常量
 module.exports = {
-  // DeepSeek API 配置
+  // Xiaomi MiMo API 配置
   AI_CONFIG: {
-    BASE_URL: 'https://api.deepseek.com',
-    MODEL: 'deepseek-v4-pro',
-    MAX_TOKENS: 100000,
+    BASE_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    MODEL: 'mimo-v2.5-pro',
+    MAX_TOKENS: 4096,
     TEMPERATURE: 0.7,
   },
 

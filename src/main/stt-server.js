@@ -40,6 +40,14 @@ class STTServer {
       return false;
     }
 
+    if (await this._tcpPing()) {
+      console.log('[STT] Existing Whisper server detected.');
+      this.isReady = true;
+      this.isStarting = false;
+      this._startHealthCheck();
+      return true;
+    }
+
     this._readyPromise = new Promise((resolve) => {
       console.log('[STT] Starting Whisper server...');
 
@@ -161,6 +169,7 @@ class STTServer {
       running: !!this.process,
       ready: this.isReady,
       starting: this.isStarting,
+      url: STT_BASE_URL,
     };
   }
 

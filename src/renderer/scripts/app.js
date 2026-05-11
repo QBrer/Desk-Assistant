@@ -7,6 +7,10 @@
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[LAIN] System initializing...');
 
+  // Keep window chrome responsive even if a later subsystem fails to boot.
+  setupWindowControls();
+  setupCopyButton();
+
   // 初始化特效
   window.cyberEffects = new CyberEffects();
   console.log('[LAIN] Cyber effects: OK');
@@ -21,11 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.voiceManager = new VoiceManager(window.chatManager);
   console.log('[LAIN] Voice manager: OK');
-
-  // 设置窗口控制
-  setupWindowControls();
-  // 复制对话按钮
-  setupCopyButton();
 
   // 聚焦输入框
   const input = document.getElementById('chat-input');

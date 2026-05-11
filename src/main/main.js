@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, shell, session } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const Store = require('electron-store');
 const { WINDOW_CONFIG, IPC_CHANNELS } = require('../shared/constants');
 const { AIEngine } = require('./ai-engine');
@@ -14,6 +15,21 @@ let systemControl = null;
 let ttsServer = null;
 let sttServer = null;
 let isAlwaysOnTop = true;
+const USER_DATA_DIR = path.join(__dirname, '..', '..', '.electron-user-data');
+
+try {
+  fs.mkdirSync(USER_DATA_DIR, { recursive: true });
+  app.setPath('userData', USER_DATA_DIR);
+  app.commandLine.appendSwitch('disk-cache-dir', path.join(USER_DATA_DIR, 'Cache'));
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+  app.commandLine.appendSwitch('in-process-gpu');
+  app.disableHardwareAcceleration();
+} catch (error) {
+  console.warn('[MAIN] Failed to configure local Electron userData:', error.message);
+}
+
 const settingsStore = new Store();
 
 function createWindow() {

@@ -4,6 +4,8 @@ dist/
 build/
 out/
 coverage/
+.electron-user-data/
+__pycache__/
 
 .env
 .env.*

@@ -242,25 +242,33 @@ class AIEngine {
   }
 
   async _initClient() {
-    let apiKey = this.store.get('apiKey') || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
+    let apiKey = this.store.get('apiKey') || process.env.XIAOMI_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
     
     if (!apiKey) {
       try {
         const fs = require('fs');
         const path = require('path');
-        const envPath = path.join(__dirname, '..', '..', '.env.example');
-        if (fs.existsSync(envPath)) {
+        const envPaths = [
+          path.join(__dirname, '..', '..', '.env'),
+          path.join(__dirname, '..', '..', '.env.example'),
+        ];
+        for (const envPath of envPaths) {
+          if (!fs.existsSync(envPath)) continue;
+
           const envContent = fs.readFileSync(envPath, 'utf-8');
-          const match = envContent.match(/DEEPSEEK_API_KEY=([^\r\n]+)/);
-          if (match && match[1]) apiKey = match[1].trim();
+          const match = envContent.match(/^(?:XIAOMI_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=([^\r\n]+)/m);
+          if (match && match[1] && !match[1].includes('your_')) {
+            apiKey = match[1].trim();
+            break;
+          }
         }
       } catch (e) {
-        console.error('Failed to read .env.example:', e);
+        console.error('Failed to read env file:', e);
       }
     }
 
     const baseURL = this.store.get('baseURL', AI_CONFIG.BASE_URL);
-    if (['deepseek-reasoner', 'deepseek-v4-flash'].includes(this.store.get('model'))) {
+    if (['deepseek-reasoner', 'deepseek-v4-flash', 'deepseek-v4-pro'].includes(this.store.get('model'))) {
       this.store.set('model', AI_CONFIG.MODEL);
     }
 
@@ -401,7 +409,7 @@ class AIEngine {
       await this._clientReady;
 
       if (!this.client) {
-        throw new Error('未配置 API Key。请在本机设置 DEEPSEEK_API_KEY 环境变量，或在应用设置中保存 apiKey。');
+        throw new Error('未配置 API Key。请在本机设置 XIAOMI_API_KEY 环境变量，或在应用设置中保存 apiKey。');
       }
 
       this.conversationHistory.push({
