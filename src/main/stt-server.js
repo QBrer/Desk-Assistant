@@ -5,6 +5,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const fs = require('fs');
 
@@ -17,6 +18,9 @@ const HEALTH_CHECK_INTERVAL = 15000;
 const STARTUP_TIMEOUT = 600000; // base模型~142MB，首次下载最多等10分钟
 
 const MODEL_DIR = path.join(__dirname, '..', '..', 'lain-voice-model');
+const PROJECT_ROOT = path.join(__dirname, '..', '..');
+const MIMO_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
+const MIMO_ASR_MODEL = process.env.MIMO_ASR_MODEL || 'mimo-v2-omni';
 
 class STTServer {
   constructor() {
@@ -25,9 +29,22 @@ class STTServer {
     this.isStarting = false;
     this._healthTimer = null;
     this._readyPromise = null;
+    this.provider = (process.env.LAIN_STT_PROVIDER || this._readEnvValue('LAIN_STT_PROVIDER') || 'local').toLowerCase();
+    this.mimoApiKey = process.env.XIAOMI_API_KEY || this._readEnvValue('XIAOMI_API_KEY');
   }
 
   async start() {
+    if (this.provider === 'mimo') {
+      this.isReady = !!this.mimoApiKey;
+      this.isStarting = false;
+      if (!this.isReady) {
+        console.error('[STT] LAIN_STT_PROVIDER=mimo but XIAOMI_API_KEY is missing');
+      } else {
+        console.log('[STT] Using Xiaomi MiMo cloud ASR provider');
+      }
+      return this.isReady;
+    }
+
     if (this.isReady) return true;
     if (this.isStarting) return this._readyPromise;
 
@@ -126,6 +143,10 @@ class STTServer {
    * @returns {Promise<string|null>} 识别文本
    */
   async transcribe(audioBuffer) {
+    if (this.provider === 'mimo') {
+      return await this.transcribeWithMiMo(audioBuffer);
+    }
+
     if (!this.isReady) {
       console.warn('[STT] Server not ready');
       return null;
@@ -169,8 +190,106 @@ class STTServer {
       running: !!this.process,
       ready: this.isReady,
       starting: this.isStarting,
+      provider: this.provider,
       url: STT_BASE_URL,
     };
+  }
+
+  async transcribeWithMiMo(audioBuffer) {
+    if (!this.mimoApiKey) {
+      console.warn('[STT] MiMo API key missing');
+      return null;
+    }
+
+    const body = {
+      model: MIMO_ASR_MODEL,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '请将这段音频逐字转写为原文。只输出转写文本，不要翻译、解释、加引号或补充说明。',
+          },
+          {
+            type: 'input_audio',
+            input_audio: {
+              data: audioBuffer.toString('base64'),
+              format: 'wav',
+            },
+          },
+        ],
+      }],
+      max_tokens: 512,
+      temperature: 0,
+    };
+
+    const result = await this._httpsJsonPost(`${MIMO_BASE_URL}/chat/completions`, body, {
+      Authorization: `Bearer ${this.mimoApiKey}`,
+      'Content-Type': 'application/json',
+    });
+    const text = result?.choices?.[0]?.message?.content?.trim();
+    return this._cleanMiMoTranscript(text);
+  }
+
+  _cleanMiMoTranscript(text) {
+    if (!text) return null;
+
+    return text
+      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+      .replace(/^(转写文本|原文|音频内容|识别结果)\s*[:：]\s*/i, '')
+      .trim();
+  }
+
+  _readEnvValue(key) {
+    try {
+      const envPath = path.join(PROJECT_ROOT, '.env');
+      if (!fs.existsSync(envPath)) return null;
+      const content = fs.readFileSync(envPath, 'utf8');
+      const match = content.match(new RegExp(`^${key}=([^\\r\\n]+)`, 'm'));
+      return match ? match[1].trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  _httpsJsonPost(url, body, headers = {}) {
+    return new Promise((resolve, reject) => {
+      const jsonBody = JSON.stringify(body);
+      const urlObj = new URL(url);
+      const options = {
+        hostname: urlObj.hostname,
+        port: urlObj.port || 443,
+        path: urlObj.pathname + urlObj.search,
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Length': Buffer.byteLength(jsonBody),
+        },
+        timeout: 60000,
+      };
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              resolve(JSON.parse(data));
+            } catch (error) {
+              reject(new Error(`Invalid JSON response: ${error.message}`));
+            }
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 300)}`));
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+      req.write(jsonBody);
+      req.end();
+    });
   }
 
   _startHealthCheck() {

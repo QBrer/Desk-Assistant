@@ -146,8 +146,8 @@ class TTSServer {
           .catch(() => setTimeout(pollReady, 3000));
       };
 
-      // 给进程 5 秒的启动时间再开始轮询
-      setTimeout(pollReady, 5000);
+      // Start polling quickly; the model load itself remains asynchronous.
+      setTimeout(pollReady, 1500);
     });
 
     return this._readyPromise;
@@ -198,7 +198,7 @@ class TTSServer {
       batch_size: 1,
       speed_factor: 1.0,
       media_type: 'wav',
-      streaming_mode: false,
+      streaming_mode: 3,
       sample_steps: 8,
     };
 

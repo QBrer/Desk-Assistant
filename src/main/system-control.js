@@ -44,6 +44,10 @@ class SystemControl {
         return await this.getSystemInfo();
       case 'list_dir':
         return await this.listDirectory(params.dirPath);
+      case 'list_skills':
+        return await this.listSkills();
+      case 'read_skill':
+        return await this.readSkill(params.name);
       case 'delete_file': {
         const resolvedPath = this.resolveWorkspacePath(params.filePath);
         if (!this.isInsideWorkspace(resolvedPath)) {
@@ -507,6 +511,70 @@ class SystemControl {
   async listDirectory(dirPath) {
     const resolvedPath = this.resolveWorkspacePath(dirPath);
     return this.runCommand(`Get-ChildItem -Path "${resolvedPath}" | Select-Object Name, Mode, Length, LastWriteTime | ConvertTo-Json`);
+  }
+
+  async listSkills() {
+    try {
+      if (!fs.existsSync(this.workspacePath)) {
+        return { success: true, skills: [] };
+      }
+
+      const skills = fs.readdirSync(this.workspacePath, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => {
+          const skillPath = path.join(this.workspacePath, entry.name, 'SKILL.md');
+          if (!fs.existsSync(skillPath)) return null;
+
+          const content = fs.readFileSync(skillPath, 'utf8');
+          const description = this.extractSkillDescription(content);
+          return {
+            name: entry.name,
+            path: path.relative(this.workspacePath, skillPath),
+            description,
+          };
+        })
+        .filter(Boolean);
+
+      return { success: true, skills };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async readSkill(name) {
+    try {
+      if (!name || !/^[\w.-]+$/.test(name)) {
+        return { success: false, error: 'skill 名称无效。' };
+      }
+
+      const skillPath = path.join(this.workspacePath, name, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) {
+        return { success: false, error: `未找到 skill: ${name}` };
+      }
+
+      return {
+        success: true,
+        name,
+        path: path.relative(this.workspacePath, skillPath),
+        content: fs.readFileSync(skillPath, 'utf8'),
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  extractSkillDescription(content) {
+    const frontMatter = content.match(/^---\s*([\s\S]*?)\s*---/);
+    if (frontMatter) {
+      const match = frontMatter[1].match(/^description:\s*["']?(.+?)["']?\s*$/m);
+      if (match) return match[1].trim();
+    }
+
+    const firstParagraph = content
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .find(line => line && !line.startsWith('#') && !line.startsWith('---'));
+    return firstParagraph || '';
   }
 
   async deleteFile(filePath) {

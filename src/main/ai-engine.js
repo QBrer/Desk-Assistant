@@ -208,6 +208,34 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'list_skills',
+      description: '列出 lain_workspace 中可用的 SKILL.md 能力说明。需要 PPT、文档、专业工作流等专门能力时先调用。',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_skill',
+      description: '读取指定 skill 的 SKILL.md 详细说明。调用后按其中工作流使用脚本、资产和参考资料。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'skill 目录名，例如 ppt-research-style',
+          },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'delete_file',
       description: '【危险操作】删除文件或文件夹。此操作需要用户最高权限确认，必须等待用户明确同意后才能执行。',
       parameters: {
@@ -232,6 +260,7 @@ class AIEngine {
     this.conversationHistory = [];
     this.maxHistory = Infinity;
     this.client = null;
+    this.skillSummary = '';
     this._aborted = false;
     this._isProcessing = false;
     this._clientReady = this._initClient();
@@ -407,6 +436,7 @@ class AIEngine {
 
     try {
       await this._clientReady;
+      await this._refreshSkillSummary();
 
       if (!this.client) {
         throw new Error('未配置 API Key。请在本机设置 XIAOMI_API_KEY 环境变量，或在应用设置中保存 apiKey。');
@@ -430,7 +460,7 @@ class AIEngine {
         this._validateMessages(`before API call (history length: ${this.conversationHistory.length})`);
 
         const messages = [
-          { role: 'system', content: LAIN_SYSTEM_PROMPT },
+          { role: 'system', content: this._buildSystemPrompt() },
           ...this.conversationHistory,
         ];
 
@@ -640,6 +670,30 @@ class AIEngine {
     return await this.systemControl.execute({ type: funcName, params: withProgress });
   }
 
+  async _refreshSkillSummary() {
+    if (!this.systemControl) return;
+
+    const result = await this.systemControl.execute({ type: 'list_skills', params: {} });
+    if (!result?.success || !Array.isArray(result.skills) || result.skills.length === 0) {
+      this.skillSummary = '';
+      return;
+    }
+
+    this.skillSummary = result.skills
+      .map(skill => `- ${skill.name}: ${skill.description || skill.path}`)
+      .join('\n');
+  }
+
+  _buildSystemPrompt() {
+    if (!this.skillSummary) return LAIN_SYSTEM_PROMPT;
+
+    return `${LAIN_SYSTEM_PROMPT}
+
+## 可用 Skills
+以下 skill 位于 lain_workspace。遇到匹配任务时，先调用 list_skills 确认可用能力，再调用 read_skill 读取完整说明，然后按 skill 中的脚本、资产和参考资料执行。
+${this.skillSummary}`;
+  }
+
   /**
    * 请求用户确认（删除操作 — 最高权限）
    */
@@ -689,6 +743,8 @@ class AIEngine {
       write_file: `写入文件 ${args.filePath}`,
       search_files: `在 ${args.directory} 中搜索 ${args.pattern}`,
       list_dir: `列出目录 ${args.dirPath}`,
+      list_skills: '列出可用 skills',
+      read_skill: `读取 skill ${args.name}`,
       system_info: '获取系统信息',
       delete_file: `⚠️ 请求删除 ${args.filePath}`,
     };

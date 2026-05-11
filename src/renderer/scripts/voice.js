@@ -240,7 +240,7 @@ class VoiceManager {
   enqueue(text) {
     if (!this.autoSpeak || !text) return;
     const cleanText = this._cleanTextForSpeech(text);
-    const sentences = this._splitSentences(cleanText);
+    const sentences = this._mergeShortSegments(this._splitSentences(cleanText), 36);
     for (const s of sentences) {
       if (s) this._ttsQueue.push(s);
     }
@@ -532,6 +532,32 @@ class VoiceManager {
       }
     }
     return result.length > 0 ? result : [text];
+  }
+
+  _mergeShortSegments(segments, minChars) {
+    const merged = [];
+    let buffer = '';
+
+    for (const segment of segments) {
+      const text = segment.trim();
+      if (!text) continue;
+
+      buffer = buffer ? `${buffer}${text}` : text;
+      if (buffer.length >= minChars) {
+        merged.push(buffer);
+        buffer = '';
+      }
+    }
+
+    if (buffer) {
+      if (merged.length > 0 && buffer.length < Math.floor(minChars / 2)) {
+        merged[merged.length - 1] += buffer;
+      } else {
+        merged.push(buffer);
+      }
+    }
+
+    return merged;
   }
 
   /**

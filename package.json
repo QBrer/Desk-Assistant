@@ -1,5 +1,5 @@
 {
-  "name": "lain-desktop-assistant",
+  "name": "lain-desktopassistant",
   "version": "1.0.0",
   "description": "Desktop AI Assistant — Lain Iwakura",
   "main": "src/main/main.js",
