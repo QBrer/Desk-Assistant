@@ -247,7 +247,7 @@ class VoiceManager {
     for (const s of sentences) {
       if (s) this._ttsQueue.push(s);
     }
-    this._warmTTSCache();
+    this._ensureTTSStatusFresh().then(() => this._warmTTSCache());
     if (!this._ttsPlaying) {
       this._processTTSQueue();
     }
@@ -653,8 +653,24 @@ class VoiceManager {
     return 'auto';
   }
 
-  async _waitForTTSReady(timeoutMs) {
+
+  async _ensureTTSStatusFresh() {
     if (this.ttsReady || !window.electronAPI) return this.ttsReady;
+
+    try {
+      const status = await window.electronAPI.ttsStatus();
+      this.ttsReady = !!status?.ready;
+      this.ttsStarting = !!status?.starting;
+      this._updateSpeakBtnStyle();
+      return this.ttsReady;
+    } catch (err) {
+      console.warn('[Voice] TTS status refresh failed:', err.message);
+      return false;
+    }
+  }
+
+  async _waitForTTSReady(timeoutMs) {
+    if (await this._ensureTTSStatusFresh()) return true;
 
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {

@@ -207,16 +207,10 @@ class ChatManager {
     this._ttsBuffer = (this._ttsBuffer || '') + chunk;
     window.character?.setState('talking');
 
-    // 边回复边语音：检测到完整句子就送入 TTS
-    const ends = /[。！？.!?\n]/;
-    const lastEnd = Math.max(
-      ...[...this._ttsBuffer.matchAll(new RegExp(ends, 'g'))].map(m => m.index)
-    );
-    if (lastEnd > 0) {
-      const sentence = this._ttsBuffer.substring(0, lastEnd + 1);
-      const remaining = this._ttsBuffer.substring(lastEnd + 1);
-      this._ttsBuffer = remaining;
-      window.voiceManager?.enqueue(sentence);
+    // 边回复边语音：优先按完整句子送入 TTS；开头等待过久时按短语提前启动。
+    const readyText = this._takeReadyTTSChunk();
+    if (readyText) {
+      window.voiceManager?.enqueue(readyText);
     }
 
     const textEl = this.currentStreamElement.querySelector('.message-text');
@@ -224,6 +218,51 @@ class ChatManager {
       textEl.innerHTML = this._renderMarkdown(this.streamContent) + '<span class="typing-cursor"></span>';
     }
     this._scrollToBottom();
+  }
+
+
+  _takeReadyTTSChunk() {
+    if (!this._ttsBuffer) return '';
+
+    const sentenceEnd = /[。！？.!?\n]/g;
+    const ends = [...this._ttsBuffer.matchAll(sentenceEnd)].map(m => m.index);
+    if (ends.length > 0) {
+      const lastEnd = Math.max(...ends);
+      if (lastEnd >= 0) return this._takeTTSBuffer(lastEnd + 1);
+    }
+
+    const trimmed = this._ttsBuffer.trimStart();
+    const leadingSpaces = this._ttsBuffer.length - trimmed.length;
+    const earlyMinChars = window.voiceManager?.isSpeaking ? 28 : 16;
+    if (trimmed.length < earlyMinChars) return '';
+
+    const softEnd = /[，,、；;：:…]/g;
+    const softEnds = [...trimmed.matchAll(softEnd)].map(m => m.index).filter(index => index >= 8);
+    if (softEnds.length > 0) {
+      return this._takeTTSBuffer(leadingSpaces + softEnds[0] + 1);
+    }
+
+    const safeCut = this._findSafeTTSBreak(trimmed, earlyMinChars, window.voiceManager?.isSpeaking ? 42 : 26);
+    if (safeCut > 0) return this._takeTTSBuffer(leadingSpaces + safeCut);
+
+    return '';
+  }
+
+  _takeTTSBuffer(endIndex) {
+    const chunk = this._ttsBuffer.substring(0, endIndex).trim();
+    this._ttsBuffer = this._ttsBuffer.substring(endIndex);
+    return chunk;
+  }
+
+  _findSafeTTSBreak(text, minChars, maxChars) {
+    const limit = Math.min(text.length, maxChars);
+    if (text.length < minChars) return -1;
+
+    for (let i = limit; i >= minChars; i--) {
+      if (/\s/.test(text[i - 1] || '')) return i;
+    }
+
+    return limit;
   }
 
   /**
