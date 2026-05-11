@@ -23,6 +23,9 @@ class VoiceManager {
     this._currentSource = null;
     this._ttsQueue = [];
     this._ttsPlaying = false;
+    this._ttsPrefetchMap = new Map();
+    this._ttsPrefetchLimit = 2;
+    this._ttsSessionId = 0;
 
     this._setupSpeechSynthesis();
     this._setupRecording();
@@ -244,6 +247,7 @@ class VoiceManager {
     for (const s of sentences) {
       if (s) this._ttsQueue.push(s);
     }
+    this._warmTTSCache();
     if (!this._ttsPlaying) {
       this._processTTSQueue();
     }
@@ -253,13 +257,15 @@ class VoiceManager {
    * 播放队列中的句子（不打断，顺序播放）
    */
   async _processTTSQueue() {
+    const sessionId = this._ttsSessionId;
     this._ttsPlaying = true;
     this.isSpeaking = true;
     this._updateSpeakingUI(true);
     window.character?.setState('talking');
 
     while (this._ttsQueue.length > 0) {
-      if (!this.isSpeaking) break;
+      if (!this.isSpeaking || sessionId !== this._ttsSessionId) break;
+      this._warmTTSCache();
       const sentence = this._ttsQueue.shift();
       if (!sentence) continue;
 
@@ -267,8 +273,8 @@ class VoiceManager {
 
       if (this.ttsReady && window.electronAPI) {
         try {
-          const lang = this._detectLang(sentence);
-          const result = await window.electronAPI.ttsSynthesize(sentence, lang);
+          const result = await this._getPrefetchedTTS(sentence, sessionId);
+          this._warmTTSCache();
           if (result && result.success && result.audio) {
             const audioData = Uint8Array.from(atob(result.audio), c => c.charCodeAt(0));
             await this._playAudioBuffer(audioData.buffer);
@@ -289,6 +295,7 @@ class VoiceManager {
     this._ttsPlaying = false;
     this._updateSpeakingUI(false);
     window.character?.setState('idle');
+    this._clearTTSCache();
   }
 
   /**
@@ -302,6 +309,70 @@ class VoiceManager {
     this.stopSpeaking();
     this._ttsQueue = [cleanText];
     await this._processTTSQueue();
+  }
+
+
+  _warmTTSCache() {
+    if (!this.ttsReady || !window.electronAPI) return;
+
+    const pending = [...this._ttsPrefetchMap.values()].filter(item => item.state === 'pending').length;
+    let slots = Math.max(0, this._ttsPrefetchLimit - pending);
+    if (slots === 0) return;
+
+    for (const sentence of this._ttsQueue) {
+      if (slots <= 0) break;
+      if (!sentence || this._ttsPrefetchMap.has(sentence)) continue;
+
+      this._prefetchSentence(sentence, this._ttsSessionId);
+      slots--;
+    }
+  }
+
+  _prefetchSentence(sentence, sessionId) {
+    const lang = this._detectLang(sentence);
+    const promise = window.electronAPI.ttsSynthesize(sentence, lang)
+      .then(result => {
+        const cached = this._ttsPrefetchMap.get(sentence);
+        if (cached && cached.sessionId === sessionId) {
+          cached.state = 'done';
+          cached.result = result;
+        }
+        return result;
+      })
+      .catch(error => {
+        const cached = this._ttsPrefetchMap.get(sentence);
+        if (cached && cached.sessionId === sessionId) {
+          cached.state = 'error';
+          cached.error = error;
+        }
+        throw error;
+      });
+
+    this._ttsPrefetchMap.set(sentence, {
+      sessionId,
+      state: 'pending',
+      promise,
+      result: null,
+      error: null,
+    });
+  }
+
+  async _getPrefetchedTTS(sentence, sessionId) {
+    const cached = this._ttsPrefetchMap.get(sentence);
+    if (cached && cached.sessionId === sessionId) {
+      try {
+        return await cached.promise;
+      } finally {
+        this._ttsPrefetchMap.delete(sentence);
+      }
+    }
+
+    const lang = this._detectLang(sentence);
+    return await window.electronAPI.ttsSynthesize(sentence, lang);
+  }
+
+  _clearTTSCache() {
+    this._ttsPrefetchMap.clear();
   }
 
   /**
@@ -441,9 +512,11 @@ class VoiceManager {
    * 停止播放
    */
   stopSpeaking() {
-    // 清空队列
+    // 清空队列并让正在预合成的旧任务失效
+    this._ttsSessionId++;
     this._ttsQueue = [];
     this._ttsPlaying = false;
+    this._clearTTSCache();
 
     // 停止 GPT-SoVITS 播放
     if (this._currentSource) {
