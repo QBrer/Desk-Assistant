@@ -255,16 +255,16 @@ class ChatManager {
 
     const trimmed = this._ttsBuffer.trimStart();
     const leadingSpaces = this._ttsBuffer.length - trimmed.length;
-    const earlyMinChars = window.voiceManager?.isSpeaking ? 28 : 16;
+    const earlyMinChars = window.voiceManager?.isSpeaking ? 12 : 8;
     if (trimmed.length < earlyMinChars) return '';
 
     const softEnd = /[，,、；;：:…]/g;
-    const softEnds = [...trimmed.matchAll(softEnd)].map(m => m.index).filter(index => index >= 8);
+    const softEnds = [...trimmed.matchAll(softEnd)].map(m => m.index).filter(index => index >= 6);
     if (softEnds.length > 0) {
       return this._takeTTSBuffer(leadingSpaces + softEnds[0] + 1);
     }
 
-    const safeCut = this._findSafeTTSBreak(trimmed, earlyMinChars, window.voiceManager?.isSpeaking ? 42 : 26);
+    const safeCut = this._findSafeTTSBreak(trimmed, earlyMinChars, window.voiceManager?.isSpeaking ? 22 : 14);
     if (safeCut > 0) return this._takeTTSBuffer(leadingSpaces + safeCut);
 
     return '';

@@ -28,7 +28,7 @@ class VoiceManager {
     this._ttsQueue = [];
     this._ttsPlaying = false;
     this._ttsPrefetchMap = new Map();
-    this._ttsPrefetchLimit = 2;
+    this._ttsPrefetchLimit = 3;
     this._ttsSessionId = 0;
 
     this._ttsStatusTimer = null;
@@ -489,7 +489,7 @@ class VoiceManager {
   enqueue(text) {
     if (!this.autoSpeak || !text) return;
     const cleanText = this._cleanTextForSpeech(text);
-    const sentences = this._mergeShortSegments(this._splitSentences(cleanText), 36);
+    const sentences = this._mergeShortSegments(this._splitSentences(cleanText), this._ttsPlaying ? 12 : 0);
     for (const s of sentences) {
       if (s) this._ttsQueue.push(s);
     }
