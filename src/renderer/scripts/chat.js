@@ -204,7 +204,10 @@ class ChatManager {
     if (!this.currentStreamElement) return;
 
     this.streamContent += chunk;
-    this._ttsBuffer = (this._ttsBuffer || '') + chunk;
+    const speakableChunk = this._getSpeakableTTSChunk(chunk);
+    if (speakableChunk) {
+      this._ttsBuffer = (this._ttsBuffer || '') + speakableChunk;
+    }
     window.character?.setState('talking');
 
     // 边回复边语音：优先按完整句子送入 TTS；开头等待过久时按短语提前启动。
@@ -218,6 +221,25 @@ class ChatManager {
       textEl.innerHTML = this._renderMarkdown(this.streamContent) + '<span class="typing-cursor"></span>';
     }
     this._scrollToBottom();
+  }
+
+
+  _getSpeakableTTSChunk(chunk) {
+    if (!chunk) return '';
+
+    const trimmed = chunk.trim();
+    if (!trimmed) return '';
+
+    const pathLike = /[A-Za-z]:\\[^\s]+/.test(trimmed);
+    const structuredOutput = /^\s*[\[{]/.test(trimmed) || /^\s*Name\s+Mode\s+Length/i.test(trimmed) || /^\s*Name\s+Length\s+LastWriteTime/i.test(trimmed);
+    const progressLine = /^\.\.\./.test(trimmed) || /^Command failed/i.test(trimmed);
+    const terseToolResult = trimmed.length < 80 && /^(Error|HTTP|Python|OK|Done|Saved|Opened)/i.test(trimmed);
+
+    if (structuredOutput || progressLine || (pathLike && terseToolResult)) return '';
+
+    return chunk
+      .replace(/[A-Za-z]:\\[^\s,.;:!?()[\]{}]+/g, ' workspace path ')
+      .replace(/https?:\/\/\S+/g, ' link ');
   }
 
 
@@ -292,7 +314,7 @@ class ChatManager {
     window.character?.setState('idle');
     // 把缓冲区剩余文本送入 TTS
     if (this._ttsBuffer && this._ttsBuffer.trim()) {
-      window.voiceManager?.enqueue(this._ttsBuffer);
+      window.voiceManager?.enqueue(this._getSpeakableTTSChunk(this._ttsBuffer));
     }
     this._ttsBuffer = '';
     this._scrollToBottom();

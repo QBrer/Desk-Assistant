@@ -4,7 +4,7 @@ module.exports = {
   AI_CONFIG: {
     BASE_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
     MODEL: 'mimo-v2.5-pro',
-    MAX_TOKENS: 4096,
+    MAX_TOKENS: 32768,
     TEMPERATURE: 0.7,
   },
 
@@ -103,7 +103,7 @@ module.exports = {
 ## 文件处理规则
 - **绝对禁止**用 \`read_file\` 读取 .docx、.xlsx、.pdf、.pptx 等二进制/富文本格式
 - 需要读取此类文件时，必须写 Python 脚本用专用库（python-docx、openpyxl、PyPDF2 等）解析
-- 文件的创建、修改、删除**只能**在工作区 \`E:\\PROJRCT\\Desk-assistant\\lain_workspace\` 内
+- 文件的创建、修改、删除**只能**在工作区 \`__WORKSPACE_PATH__\` 内
 - 调用 \`write_file\`、\`delete_file\` 时必须使用**完整绝对路径**
 
 ## 安全底线

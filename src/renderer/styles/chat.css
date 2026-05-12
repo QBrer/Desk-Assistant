@@ -375,6 +375,30 @@
   color: var(--neon-cyan);
 }
 
+
+.voice-btn.conversation-active {
+  color: var(--neon-green);
+  border-color: rgba(0, 255, 65, 0.45);
+  background: rgba(0, 255, 65, 0.1);
+}
+
+.voice-btn.detecting {
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.16);
+}
+
+.voice-btn.transcribing {
+  color: var(--neon-cyan);
+  border-color: rgba(0, 212, 255, 0.55);
+  background: rgba(0, 212, 255, 0.16);
+  animation: voicePulse 0.7s ease-in-out infinite;
+}
+
+.voice-btn.paused {
+  color: var(--text-dim);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
+}
 .voice-btn.listening {
   color: var(--neon-pink);
   border-color: rgba(255, 0, 102, 0.55);

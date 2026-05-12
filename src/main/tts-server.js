@@ -39,6 +39,8 @@ class TTSServer {
     this.isStarting = false;
     this._healthTimer = null;
     this._readyPromise = null;
+    this.weightsLoaded = false;
+    this.lastError = null;
   }
 
   /**
@@ -55,6 +57,7 @@ class TTSServer {
     const startScript = path.join(MODEL_DIR, 'start_api.py');
     if (!fs.existsSync(startScript)) {
       console.error('[TTS] start_api.py not found:', startScript);
+      this.lastError = 'start_api.py not found';
       this.isStarting = false;
       return false;
     }
@@ -63,11 +66,13 @@ class TTSServer {
       console.log('[TTS] Existing GPT-SoVITS server detected, loading model weights...');
       try {
         await this._loadModelWeights();
+        this.weightsLoaded = true;
         this.isReady = true;
         this.isStarting = false;
         this._startHealthCheck();
         return true;
       } catch (err) {
+        this.lastError = err.message;
         console.error('[TTS] Existing server is not usable:', err.message);
       }
     }
@@ -99,6 +104,8 @@ class TTSServer {
 
       this.process.on('error', (err) => {
         console.error('[TTS] Process error:', err.message);
+        this.lastError = err.message;
+        this.weightsLoaded = false;
         this.isReady = false;
         this.isStarting = false;
         resolve(false);
@@ -125,18 +132,22 @@ class TTSServer {
           .then((ok) => {
             if (ok) {
               console.log('[TTS] Server is responding, loading model weights...');
-              this.isStarting = false;
               this._startHealthCheck();
               // 加载模型权重，成功才标记 ready
               this._loadModelWeights()
                 .then(() => {
+                  this.weightsLoaded = true;
                   this.isReady = true;
+                  this.isStarting = false;
                   console.log('[TTS] Server is ready!');
                   resolve(true);
                 })
                 .catch((err) => {
                   console.error('[TTS] Model weights failed to load:', err.message);
+                  this.lastError = err.message;
+                  this.weightsLoaded = false;
                   this.isReady = false;
+                  this.isStarting = false;
                   resolve(false);
                 });
             } else {
@@ -159,6 +170,8 @@ class TTSServer {
   async _loadModelWeights() {
     const gptPath = path.join(MODEL_DIR, 'xxx-e15.ckpt');
     const sovitsPath = path.join(MODEL_DIR, 'xxx_e16_s144_l32.pth');
+    this.weightsLoaded = false;
+    this.lastError = null;
 
     // 先加载 SoVITS 权重
     await this._httpGet(`${TTS_BASE_URL}/set_sovits_weights?weights_path=${encodeURIComponent(sovitsPath)}`);
@@ -231,6 +244,7 @@ class TTSServer {
       this.process = null;
     }
     this.isReady = false;
+    this.weightsLoaded = false;
     this.isStarting = false;
   }
 
@@ -239,9 +253,11 @@ class TTSServer {
    */
   getStatus() {
     return {
-      running: !!this.process,
+      running: !!this.process || this.isReady || this.isStarting,
       ready: this.isReady,
       starting: this.isStarting,
+      weightsLoaded: this.weightsLoaded,
+      lastError: this.lastError,
       url: TTS_BASE_URL,
     };
   }
@@ -256,6 +272,7 @@ class TTSServer {
       const ok = await this._healthPing();
       if (!ok && this.isReady) {
         console.warn('[TTS] Health check failed, server may be down');
+        this.weightsLoaded = false;
         this.isReady = false;
       }
     }, HEALTH_CHECK_INTERVAL);

@@ -263,7 +263,7 @@ function registerShortcuts() {
 
 // 应用启动
 app.whenReady().then(async () => {
-  systemControl = new SystemControl();
+  systemControl = new SystemControl(path.join(__dirname, '..', '..'));
 
   setupMediaPermissions();
   createWindow();

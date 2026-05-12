@@ -422,6 +422,27 @@ class AIEngine {
     return `操作失败：${result?.error || result?.message || '未知错误'}`;
   }
 
+  _readProjectEnvValue(key) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const envPath = path.join(__dirname, '..', '..', '.env');
+      if (!fs.existsSync(envPath)) return null;
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      const match = envContent.match(new RegExp(`^${key}=([^\\r\\n]+)`, 'm'));
+      return match && match[1] ? match[1].trim() : null;
+    } catch (error) {
+      console.warn(`[AI] Failed to read ${key} from .env:`, error.message);
+      return null;
+    }
+  }
+
+  _getMaxTokens() {
+    const rawValue = this.store.get('maxTokens') || process.env.LAIN_MAX_TOKENS || this._readProjectEnvValue('LAIN_MAX_TOKENS');
+    const parsed = Number.parseInt(rawValue || AI_CONFIG.MAX_TOKENS, 10);
+    if (!Number.isFinite(parsed)) return AI_CONFIG.MAX_TOKENS;
+    return Math.min(131072, Math.max(1024, parsed));
+  }
   /**
    * 发送消息并流式返回 — 智能体工作流 (Agentic Workflow)
    * 使用 while 循环实现多步工具调用，直到模型给出最终文本回复。
@@ -467,7 +488,7 @@ class AIEngine {
         const response = await this.client.chat.completions.create({
           model: this._getModel(),
           messages,
-          max_tokens: AI_CONFIG.MAX_TOKENS,
+          max_tokens: this._getMaxTokens(),
           temperature: AI_CONFIG.TEMPERATURE,
           tools: TOOLS,
           tool_choice: 'auto',
@@ -685,9 +706,20 @@ class AIEngine {
   }
 
   _buildSystemPrompt() {
-    if (!this.skillSummary) return LAIN_SYSTEM_PROMPT;
+    const workspacePath = this.systemControl?.workspacePath || 'lain_workspace';
+    const basePath = this.systemControl?.basePath || process.cwd();
+    const basePrompt = LAIN_SYSTEM_PROMPT.replace(/__WORKSPACE_PATH__/g, workspacePath);
+    const workspaceHint = `
 
-    return `${LAIN_SYSTEM_PROMPT}
+## 当前真实工作区
+- 项目根目录: ${basePath}
+- 工作区目录: ${workspacePath}
+- 下载、创建、修改文件时，优先直接使用这个工作区目录。
+- 不要再尝试旧目录 E:\\PROJRCT\\Desk-assistant；项目已经更名为 Lain-DesktopAssistant。`;
+
+    if (!this.skillSummary) return `${basePrompt}${workspaceHint}`;
+
+    return `${basePrompt}${workspaceHint}
 
 ## 可用 Skills
 以下 skill 位于 lain_workspace。遇到匹配任务时，先调用 list_skills 确认可用能力，再调用 read_skill 读取完整说明，然后按 skill 中的脚本、资产和参考资料执行。

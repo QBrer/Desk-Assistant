@@ -95,6 +95,7 @@ XIAOMI_API_KEY=your_xiaomi_mimo_api_key
 # mimo = 小米 MiMo 云端音频识别/转写
 LAIN_STT_PROVIDER=local
 MIMO_ASR_MODEL=mimo-v2-omni
+LAIN_MAX_TOKENS=32768
 ```
 
 常用环境变量：
@@ -104,6 +105,7 @@ MIMO_ASR_MODEL=mimo-v2-omni
 | `XIAOMI_API_KEY` | 小米 MiMo API Key | `your_xiaomi_mimo_api_key` |
 | `LAIN_STT_PROVIDER` | 语音识别提供方 | `local` / `mimo` |
 | `MIMO_ASR_MODEL` | MiMo 音频识别模型 | `mimo-v2-omni` |
+| `LAIN_MAX_TOKENS` | 单次回复最大 token 数 | `32768` |
 | `LAIN_STT_MODEL` | faster-whisper 模型大小 | `small` |
 | `LAIN_STT_DEVICE` | faster-whisper 推理设备 | `cpu` |
 | `LAIN_STT_COMPUTE_TYPE` | faster-whisper 量化类型 | `int8` |
@@ -138,7 +140,7 @@ AI 对话模型配置位于 `src/shared/constants.js`：
 AI_CONFIG: {
   BASE_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
   MODEL: 'mimo-v2.5-pro',
-  MAX_TOKENS: 4096,
+  MAX_TOKENS: 32768,
   TEMPERATURE: 0.7,
 }
 ```
@@ -186,6 +188,7 @@ LAIN_STT_PROVIDER=local
 ```env
 LAIN_STT_PROVIDER=mimo
 MIMO_ASR_MODEL=mimo-v2-omni
+LAIN_MAX_TOKENS=32768
 ```
 
 ## 语音合成

@@ -6,8 +6,11 @@ const os = require('os');
 class SystemControl {
   constructor(basePath) {
     this.pendingConfirmations = new Map();
-    this.basePath = basePath || process.cwd();
+    this.basePath = path.resolve(basePath || process.cwd());
     this.workspacePath = path.join(this.basePath, 'lain_workspace');
+    this.legacyWorkspacePaths = [
+      path.resolve('E:/PROJRCT/Desk-assistant/lain_workspace'),
+    ];
 
     if (!fs.existsSync(this.workspacePath)) {
       fs.mkdirSync(this.workspacePath, { recursive: true });
@@ -64,7 +67,18 @@ class SystemControl {
 
   resolveWorkspacePath(filePath) {
     if (!filePath) return this.workspacePath;
-    if (path.isAbsolute(filePath)) return path.resolve(filePath);
+
+    if (path.isAbsolute(filePath)) {
+      const resolvedPath = path.resolve(filePath);
+      const legacyRoot = this.legacyWorkspacePaths.find(oldPath => {
+        const relative = path.relative(oldPath, resolvedPath);
+        return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+      });
+      if (legacyRoot) {
+        return path.resolve(this.workspacePath, path.relative(legacyRoot, resolvedPath));
+      }
+      return resolvedPath;
+    }
 
     const normalizedPath = filePath.replace(/[\\/]+/g, path.sep);
     if (normalizedPath === path.basename(this.workspacePath) || normalizedPath.startsWith(`${path.basename(this.workspacePath)}${path.sep}`)) {

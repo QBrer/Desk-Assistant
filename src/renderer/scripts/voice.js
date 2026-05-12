@@ -12,6 +12,10 @@ class VoiceManager {
     this.input = document.getElementById('chat-input');
     this.autoSpeak = true;
     this.isListening = false;
+    this.conversationMode = false;
+    this.vadState = 'idle';
+    this.transcribing = false;
+    this.pausedForAssistant = false;
     this.recognition = null;
     this.selectedVoice = null;
 
@@ -26,6 +30,27 @@ class VoiceManager {
     this._ttsPrefetchMap = new Map();
     this._ttsPrefetchLimit = 2;
     this._ttsSessionId = 0;
+
+    this._ttsStatusTimer = null;
+
+    // Continuous voice conversation / VAD input state
+    this._vadTimer = null;
+    this._vadAnalyser = null;
+    this._vadSource = null;
+    this._vadData = null;
+    this._preRecordChunks = [];
+    this._currentSpeechChunks = [];
+    this._speechStartedAt = 0;
+    this._lastVoiceAt = 0;
+    this._lastAssistantAudioAt = 0;
+    this._vadThresholdDb = -48;
+    this._silenceToStopMs = 900;
+    this._minSpeechMs = 600;
+    this._maxSpeechMs = 20000;
+    this._preRecordMs = 400;
+    this._recorderSliceMs = 200;
+    this._recordingSessionId = 0;
+    this._recorderStartedAt = 0;
 
     this._setupSpeechSynthesis();
     this._setupRecording();
@@ -123,108 +148,329 @@ class VoiceManager {
       return;
     }
 
-    // 预先请求麦克风权限
-    navigator.mediaDevices.getUserMedia({ audio: true })
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    })
       .then((stream) => {
         this._mediaStream = stream;
-        this.micBtn?.setAttribute('title', '点击开始语音输入 (本地 Whisper)');
+        this.micBtn?.setAttribute('title', '点击开启连续语音对话');
       })
       .catch(() => {
         this.micBtn?.classList.add('unsupported');
         this.micBtn?.setAttribute('title', '麦克风权限被拒绝');
       });
 
-    // 查询 STT 服务状态
     if (window.electronAPI) {
       window.electronAPI.sttStatus().then((status) => {
         this._sttReady = status && status.ready;
+        const provider = status?.provider === 'mimo' ? 'MiMo ASR' : '本地 Whisper';
+        if (this._mediaStream) {
+          this.micBtn?.setAttribute('title', `点击开启连续语音对话 (${provider})`);
+        }
         if (!this._sttReady) {
-          console.log('[Voice] Whisper STT not ready yet, will try when needed');
+          console.log('[Voice] STT not ready yet, will try when needed');
         }
       });
     }
   }
 
   toggleListening() {
+    if (this.conversationMode) {
+      this._stopConversationMode();
+      return;
+    }
+
+    this._startConversationMode().catch((error) => {
+      this.chatManager?.addSystemMessage(`连续语音启动失败: ${error.message}`);
+      this._stopConversationMode();
+    });
+  }
+
+  async _startConversationMode() {
     if (!this._mediaStream) {
       this.chatManager?.addSystemMessage('麦克风不可用，请检查权限设置。');
       return;
     }
 
-    if (this.isListening) {
-      this._stopRecording();
-      return;
+    if (this.conversationMode) return;
+
+    if (!this._audioContext) {
+      this._audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this._audioContext.state === 'suspended') {
+      await this._audioContext.resume();
     }
 
-    try {
-      this.stopSpeaking();
-      this._startRecording();
-    } catch (error) {
-      this.chatManager?.addSystemMessage(`录音启动失败: ${error.message}`);
-    }
+    this.conversationMode = true;
+    this.transcribing = false;
+    this._resetSpeechBuffers();
+    this._startContinuousRecorder();
+    this._startVADLoop();
+    this._setVadState(this._isAssistantBusy() ? 'pausedForAssistant' : 'detecting');
   }
 
-  _startRecording() {
-    this._audioChunks = [];
+  _stopConversationMode() {
+    this.conversationMode = false;
+    this.transcribing = false;
+    this.isListening = false;
+    this.pausedForAssistant = false;
+    this._stopVADLoop();
+    this._stopContinuousRecorder();
+    this._resetSpeechBuffers();
+    this._setVadState('idle');
+    window.character?.setState('idle');
+  }
+
+  _startContinuousRecorder() {
+    this._stopContinuousRecorder(false);
+
+    const sessionId = ++this._recordingSessionId;
+    this._recorderStartedAt = Date.now();
+    if (this.vadState !== 'speech') this._currentSpeechChunks = [];
     this._mediaRecorder = new MediaRecorder(this._mediaStream, {
       mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm',
     });
 
-    this._mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) this._audioChunks.push(e.data);
+    this._mediaRecorder.ondataavailable = (event) => {
+      if (!event.data || event.data.size <= 0 || !this.conversationMode || sessionId !== this._recordingSessionId) return;
+      this._currentSpeechChunks.push(event.data);
     };
 
-    this._mediaRecorder.onstop = async () => {
-      if (this._audioChunks.length === 0) return;
 
-      const blob = new Blob(this._audioChunks, { type: 'audio/webm' });
-      this._audioChunks = [];
-
-      try {
-        // webm → AudioBuffer → WAV
-        const wavData = await this._convertToWav(blob);
-        if (!wavData) {
-          this.chatManager?.addSystemMessage('音频处理失败，请重试。');
-          return;
-        }
-
-        if (wavData.byteLength < 32000) {
-          this.chatManager?.addSystemMessage('录音太短了，请再说一次。');
-          return;
-        }
-
-        const result = await window.electronAPI.sttTranscribe(Array.from(new Uint8Array(wavData)));
-        if (result && result.success && result.text) {
-          if (this.input) {
-            this.input.value = result.text;
-            this.input.dispatchEvent(new Event('input'));
-          }
-          this.chatManager.sendText(result.text);
-        } else {
-          this.chatManager?.addSystemMessage('未识别到语音内容，请重试。');
-        }
-      } catch (err) {
-        this.chatManager?.addSystemMessage(`语音识别失败: ${err.message}`);
+    this._mediaRecorder.onstop = () => {
+      if (this.conversationMode && !this.transcribing && sessionId === this._recordingSessionId) {
+        this._startContinuousRecorder();
       }
     };
 
-    this._mediaRecorder.start(250);
+    this._mediaRecorder.onerror = (event) => {
+      const message = event.error?.message || 'MediaRecorder error';
+      console.warn('[Voice] Recorder error:', message);
+      this.chatManager?.addSystemMessage(`录音错误: ${message}`);
+      this._stopConversationMode();
+    };
+
+    this._mediaRecorder.start(this._recorderSliceMs);
+  }
+
+  _stopContinuousRecorder(invalidate = true) {
+    if (invalidate) this._recordingSessionId++;
+    if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+      try { this._mediaRecorder.stop(); } catch (error) { console.warn('[Voice] Recorder stop failed:', error.message); }
+    }
+    this._mediaRecorder = null;
+  }
+
+  _startVADLoop() {
+    this._stopVADLoop();
+
+    if (!this._vadSource) {
+      this._vadSource = this._audioContext.createMediaStreamSource(this._mediaStream);
+    }
+    this._vadAnalyser = this._audioContext.createAnalyser();
+    this._vadAnalyser.fftSize = 1024;
+    this._vadData = new Float32Array(this._vadAnalyser.fftSize);
+    this._vadSource.connect(this._vadAnalyser);
+
+    this._vadTimer = window.setInterval(() => this._handleVADTick(), 80);
+  }
+
+  _stopVADLoop() {
+    if (this._vadTimer) {
+      window.clearInterval(this._vadTimer);
+      this._vadTimer = null;
+    }
+    if (this._vadSource) {
+      try { this._vadSource.disconnect(); } catch (error) {}
+      this._vadSource = null;
+    }
+    this._vadAnalyser = null;
+    this._vadData = null;
+  }
+
+  _handleVADTick() {
+    if (!this.conversationMode || !this._vadAnalyser || this.transcribing) return;
+
+    if (this._isAssistantBusy()) {
+      if (this.vadState === 'speech') this._discardCurrentSpeech();
+      this._preRecordChunks = [];
+      this._lastAssistantAudioAt = Date.now();
+      this._setVadState('pausedForAssistant');
+      return;
+    }
+
+    if (Date.now() - this._lastAssistantAudioAt < 500) {
+      this._setVadState('pausedForAssistant');
+      return;
+    }
+
+    if (this.vadState === 'pausedForAssistant' || this.vadState === 'idle') {
+      this._setVadState('detecting');
+    }
+
+    const now = Date.now();
+    const levelDb = this._getInputLevelDb();
+    const hasVoice = levelDb >= this._vadThresholdDb;
+
+    if (!hasVoice && this.vadState === 'detecting' && now - this._recorderStartedAt > Math.max(this._preRecordMs, this._recorderSliceMs * 2)) {
+      this._currentSpeechChunks = [];
+      if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+        try { this._mediaRecorder.stop(); } catch (error) {}
+      }
+      return;
+    }
+
+    if (hasVoice) {
+      this._lastVoiceAt = now;
+      if (this.vadState !== 'speech') {
+        this._beginSpeechSegment(now);
+      }
+    }
+
+    if (this.vadState !== 'speech') return;
+
+    const speechMs = now - this._speechStartedAt;
+    const silenceMs = now - this._lastVoiceAt;
+    if (speechMs >= this._maxSpeechMs || (speechMs >= this._minSpeechMs && silenceMs >= this._silenceToStopMs)) {
+      this._finishSpeechSegment();
+    }
+  }
+
+  _getInputLevelDb() {
+    this._vadAnalyser.getFloatTimeDomainData(this._vadData);
+    let sum = 0;
+    for (let i = 0; i < this._vadData.length; i++) {
+      sum += this._vadData[i] * this._vadData[i];
+    }
+    const rms = Math.sqrt(sum / this._vadData.length) || 0.000001;
+    return 20 * Math.log10(rms);
+  }
+
+  _beginSpeechSegment(now) {
+    this._speechStartedAt = now;
+    this._lastVoiceAt = now;
     this.isListening = true;
-    this.micBtn?.classList.add('listening');
+    this._setVadState('speech');
     window.character?.setState('thinking');
   }
 
-  _stopRecording() {
-    if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
-      this._mediaRecorder.stop();
-    }
+  _discardCurrentSpeech() {
+    this._currentSpeechChunks = [];
+    this._speechStartedAt = 0;
+    this._lastVoiceAt = 0;
     this.isListening = false;
-    this.micBtn?.classList.remove('listening');
-    window.character?.setState('idle');
   }
 
+  _flushCurrentRecorder() {
+    const recorder = this._mediaRecorder;
+    if (!recorder || recorder.state === 'inactive') return Promise.resolve();
+
+    return new Promise((resolve) => {
+      const previousOnStop = recorder.onstop;
+      recorder.onstop = (event) => {
+        if (typeof previousOnStop === 'function') previousOnStop.call(recorder, event);
+        resolve();
+      };
+
+      try { recorder.requestData(); } catch (error) {}
+      try { recorder.stop(); } catch (error) { resolve(); }
+    });
+  }
+
+  async _finishSpeechSegment() {
+    if (this.transcribing) return;
+
+    const speechMs = Date.now() - this._speechStartedAt;
+    this.transcribing = true;
+    await this._flushCurrentRecorder();
+
+    const chunks = [...this._currentSpeechChunks];
+    this._discardCurrentSpeech();
+
+    if (speechMs < this._minSpeechMs || chunks.length === 0) {
+      this.transcribing = false;
+      if (this.conversationMode && (!this._mediaRecorder || this._mediaRecorder.state === 'inactive')) {
+        this._startContinuousRecorder();
+      }
+      this._setVadState(this.conversationMode ? 'detecting' : 'idle');
+      return;
+    }
+
+    this._setVadState('transcribing');
+    window.character?.setState('thinking');
+
+    try {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const wavData = await this._convertToWav(blob);
+      if (!wavData || wavData.byteLength < 32000) {
+        return;
+      }
+
+      const result = await window.electronAPI.sttTranscribe(Array.from(new Uint8Array(wavData)));
+      if (result && result.success && result.text) {
+        const text = result.text.trim();
+        if (text && !this.chatManager?.isStreaming) {
+          if (this.input) {
+            this.input.value = text;
+            this.input.dispatchEvent(new Event('input'));
+          }
+          this.chatManager.sendText(text);
+        }
+      } else if (result?.error) {
+        console.warn('[Voice] STT returned no text:', result.error);
+      }
+    } catch (err) {
+      this.chatManager?.addSystemMessage(`语音识别失败: ${err.message}`);
+    } finally {
+      this.transcribing = false;
+      if (this.conversationMode) {
+        if (!this._mediaRecorder || this._mediaRecorder.state === 'inactive') this._startContinuousRecorder();
+        this._setVadState(this._isAssistantBusy() ? 'pausedForAssistant' : 'detecting');
+      } else {
+        this._setVadState('idle');
+      }
+    }
+  }
+
+  _resetSpeechBuffers() {
+    this._preRecordChunks = [];
+    this._currentSpeechChunks = [];
+    this._speechStartedAt = 0;
+    this._lastVoiceAt = 0;
+  }
+
+  _isAssistantBusy() {
+    return !!(this.chatManager?.isStreaming || this.isSpeaking || this._ttsPlaying);
+  }
+
+  _setVadState(state) {
+    this.vadState = state;
+    this.pausedForAssistant = state === 'pausedForAssistant';
+    this.isListening = state === 'speech';
+
+    if (!this.micBtn) return;
+    this.micBtn.classList.toggle('conversation-active', this.conversationMode);
+    this.micBtn.classList.toggle('detecting', state === 'detecting');
+    this.micBtn.classList.toggle('listening', state === 'speech');
+    this.micBtn.classList.toggle('transcribing', state === 'transcribing');
+    this.micBtn.classList.toggle('paused', state === 'pausedForAssistant');
+
+    const titleByState = {
+      idle: '点击开启连续语音对话',
+      detecting: '连续对话开启：直接说话，静音后自动发送',
+      speech: '正在听你说话，停顿后自动发送',
+      transcribing: '正在识别语音...',
+      pausedForAssistant: 'Lain 正在回复，语音监听已暂停',
+    };
+    this.micBtn.setAttribute('title', titleByState[state] || titleByState.idle);
+    this.micBtn.setAttribute('aria-label', titleByState[state] || titleByState.idle);
+  }
   toggleAutoSpeak() {
     this.autoSpeak = !this.autoSpeak;
     this.speakBtn?.classList.toggle('active', this.autoSpeak);
