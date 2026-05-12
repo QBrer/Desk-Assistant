@@ -232,7 +232,7 @@ class ChatManager {
 
     const pathLike = /[A-Za-z]:\\[^\s]+/.test(trimmed);
     const structuredOutput = /^\s*[\[{]/.test(trimmed) || /^\s*Name\s+Mode\s+Length/i.test(trimmed) || /^\s*Name\s+Length\s+LastWriteTime/i.test(trimmed);
-    const progressLine = /^\.\.\./.test(trimmed) || /^Command failed/i.test(trimmed);
+    const progressLine = /^\.\.\.[^\n]{0,24}:/.test(trimmed) || /^Command failed/i.test(trimmed);
     const terseToolResult = trimmed.length < 80 && /^(Error|HTTP|Python|OK|Done|Saved|Opened)/i.test(trimmed);
 
     if (structuredOutput || progressLine || (pathLike && terseToolResult)) return '';
