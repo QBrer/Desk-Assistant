@@ -1,8 +1,7 @@
 /**
  * Voice Manager — 语音输入 + GPT-SoVITS 语音合成
  *
- * 语音输出优先使用本地 GPT-SoVITS 服务（玲音的训练声线），
- * 若服务不可用则自动降级为浏览器内置 Web Speech API。
+ * 语音输出只使用本地 GPT-SoVITS 服务（玲音的训练声线），避免切换到系统/浏览器音色。
  */
 class VoiceManager {
   constructor(chatManager) {
@@ -17,7 +16,6 @@ class VoiceManager {
     this.transcribing = false;
     this.pausedForAssistant = false;
     this.recognition = null;
-    this.selectedVoice = null;
 
     // GPT-SoVITS 状态
     this.ttsReady = false;
@@ -98,7 +96,7 @@ class VoiceManager {
       this.speakBtn.setAttribute('title', '朗读回复 (玲音语音启动中)');
       this.speakBtn.classList.remove('tts-lain');
     } else {
-      this.speakBtn.setAttribute('title', '朗读回复 (浏览器语音)');
+      this.speakBtn.setAttribute('title', '朗读回复 (玲音语音未就绪)');
       this.speakBtn.classList.remove('tts-lain');
     }
   }
@@ -110,28 +108,10 @@ class VoiceManager {
     this.speakBtn?.addEventListener('click', () => this.toggleAutoSpeak());
   }
 
-  // ————————— 浏览器 TTS 备用 —————————
+  // ————————— 浏览器 TTS 清理 —————————
 
   _setupSpeechSynthesis() {
-    if (!('speechSynthesis' in window)) {
-      this.autoSpeak = false;
-      this.speakBtn?.classList.remove('active');
-      this.speakBtn?.classList.add('unsupported');
-      this.speakBtn?.setAttribute('title', '当前环境不支持朗读');
-      return;
-    }
-
-    const pickVoice = () => {
-      const voices = window.speechSynthesis.getVoices();
-      this.selectedVoice =
-        voices.find(voice => /zh|chinese|mandarin/i.test(`${voice.lang} ${voice.name}`)) ||
-        voices.find(voice => /ja|japanese/i.test(`${voice.lang} ${voice.name}`)) ||
-        voices[0] ||
-        null;
-    };
-
-    pickVoice();
-    window.speechSynthesis.onvoiceschanged = pickVoice;
+    window.speechSynthesis?.cancel();
   }
 
   // ————————— 语音识别（输入，faster-whisper）—————————
@@ -526,14 +506,14 @@ class VoiceManager {
             await this._playAudioBuffer(audioData.buffer);
           } else {
             console.warn('[Voice] GPT-SoVITS returned no audio:', result?.error || 'unknown error');
-            await this._speakWithBrowserAsync(sentence);
+            console.warn('[Voice] GPT-SoVITS not ready, skip browser fallback voice');
           }
         } catch (err) {
           console.warn('[Voice] Queue sentence error:', err.message);
-          await this._speakWithBrowserAsync(sentence);
+          console.warn('[Voice] GPT-SoVITS not ready, skip browser fallback voice');
         }
       } else {
-        await this._speakWithBrowserAsync(sentence);
+        console.warn('[Voice] GPT-SoVITS not ready, skip browser fallback voice');
       }
     }
 
@@ -545,7 +525,7 @@ class VoiceManager {
   }
 
   /**
-   * 朗读文本。优先使用 GPT-SoVITS，不可用则 fallback 到浏览器。
+   * 朗读文本。只使用 GPT-SoVITS 模型音色，避免切换到系统/浏览器音色。
    * @param {string} text - AI 回复的原始文本
    */
   async speak(text) {
@@ -659,7 +639,7 @@ class VoiceManager {
     }
 
     if (!anySuccess && sentences.length > 0) {
-      this._speakWithBrowser(text);
+      console.warn('[Voice] GPT-SoVITS produced no audio, browser fallback disabled');
     }
   }
 
@@ -699,59 +679,12 @@ class VoiceManager {
   }
 
   /**
-   * 浏览器 TTS 备用
+   * 浏览器 TTS 已禁用，只保留空方法防止旧调用误触发系统音色。
    */
-  _speakWithBrowser(text) {
-    if (!('speechSynthesis' in window)) return;
+  _speakWithBrowser() {}
 
-    this.isSpeaking = true;
-    this._updateSpeakingUI(true);
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = this.selectedVoice?.lang || 'zh-CN';
-    utterance.voice = this.selectedVoice;
-    utterance.rate = 0.95;
-    utterance.pitch = 1.05;
-    utterance.volume = 0.9;
-
-    utterance.onend = () => {
-      this.isSpeaking = false;
-      this._updateSpeakingUI(false);
-      window.character?.setState('idle');
-    };
-
-    utterance.onerror = () => {
-      this.isSpeaking = false;
-      this._updateSpeakingUI(false);
-    };
-
-    window.character?.setState('talking');
-    window.speechSynthesis.speak(utterance);
-  }
-
-  _speakWithBrowserAsync(text) {
-    return new Promise((resolve) => {
-      if (!('speechSynthesis' in window)) {
-        resolve();
-        return;
-      }
-
-      this.isSpeaking = true;
-      this._updateSpeakingUI(true);
-      window.character?.setState('talking');
-
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = this.selectedVoice?.lang || 'zh-CN';
-      utterance.voice = this.selectedVoice;
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
-      utterance.volume = 0.9;
-      utterance.onend = resolve;
-      utterance.onerror = resolve;
-      window.speechSynthesis.speak(utterance);
-    });
+  _speakWithBrowserAsync() {
+    return Promise.resolve();
   }
 
   /**

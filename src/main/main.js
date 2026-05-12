@@ -284,7 +284,7 @@ app.whenReady().then(async () => {
         mainWindow.webContents.send('tts:ready');
       }
     } else {
-      console.warn('[MAIN] GPT-SoVITS TTS server failed to start, using browser TTS fallback');
+      console.warn('[MAIN] GPT-SoVITS TTS server failed to start; browser TTS fallback disabled');
     }
   });
 
