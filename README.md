@@ -2,7 +2,7 @@
 
 Lain DesktopAssistant 是一个基于 Electron 的桌面 AI 智能体项目。它将小米 MiMo 大模型对话、本地 GPT-SoVITS 音色、语音识别、桌面工具调用和本地 Skill 工作区整合在一起，目标是做一个可以语音交互、读写工作区文件、执行辅助任务的桌面助手。
 
-<img src="image.png" style="zoom:80%;" />
+<img src="image1.png" style="zoom:80%; display:block; margin:0 auto;" />
 
 > 注意：项目不会在 README 中保存任何真实 API Key。请把密钥放在本地 `.env` 文件中，并确保 `.env` 不提交到仓库。
 
