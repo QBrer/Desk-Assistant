@@ -59,6 +59,17 @@
     <!-- 对话区域 -->
     <div class="chat-section" id="chat-section">
       <div class="chat-messages" id="chat-messages">
+        <div class="backend-switcher" id="backend-switcher">
+          <div class="backend-switcher-main">
+            <span class="backend-label" id="backend-label">BACKEND: MIMO</span>
+            <div class="backend-actions">
+              <button class="backend-btn active" id="backend-mimo-btn" type="button">快速模式 MiMo</button>
+              <button class="backend-btn" id="backend-hermes-btn" type="button">Agent 模式 Hermes</button>
+            </div>
+          </div>
+          <div class="backend-message hidden" id="backend-message"></div>
+        </div>
+
         <!-- 初始欢迎消息 -->
         <div class="message message-lain">
           <div class="message-avatar">L</div>

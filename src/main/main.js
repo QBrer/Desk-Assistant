@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, shell, session } = require('electron');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const Store = require('electron-store');
@@ -140,6 +141,21 @@ function setupMediaPermissions() {
   });
 }
 
+
+function checkHermesHealth(timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const req = http.get('http://127.0.0.1:8642/health', { timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 300);
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on('error', () => resolve(false));
+  });
+}
+
 function setupIPC() {
   // 窗口控制
   ipcMain.on(IPC_CHANNELS.WIN_MINIMIZE, () => {
@@ -172,6 +188,35 @@ function setupIPC() {
   // AI 停止生成
   ipcMain.on(IPC_CHANNELS.AI_STOP, () => {
     if (aiEngine) aiEngine.abort();
+  });
+  ipcMain.handle(IPC_CHANNELS.AI_GET_BACKEND, async () => {
+    return aiEngine ? aiEngine.getBackendStatus() : { backend: 'mimo', ready: false, processing: false };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AI_SET_BACKEND, async (event, backend) => {
+    const normalized = String(backend || '').trim().toLowerCase();
+    if (!['mimo', 'hermes'].includes(normalized)) {
+      return { success: false, error: '无效的后端，只能选择 MiMo 或 Hermes。' };
+    }
+
+    if (normalized === 'hermes') {
+      const hermesReady = await checkHermesHealth();
+      if (!hermesReady) {
+        return {
+          success: false,
+          backend: aiEngine?.backendName || 'mimo',
+          error: 'Hermes 未运行。请先启动 gateway。',
+          command: "wsl -d Ubuntu -- bash -lc 'export HERMES_HOME=/mnt/e/PROJRCT/Lain-DesktopAssistant/.local/hermes/home; export PATH=/root/.local/bin:/root/.hermes/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; cd /mnt/e/PROJRCT/Lain-DesktopAssistant; hermes gateway run --accept-hooks'",
+        };
+      }
+    }
+
+    try {
+      const status = await aiEngine.updateBackend(normalized);
+      return { success: true, ...status };
+    } catch (error) {
+      return { success: false, backend: aiEngine?.backendName || 'mimo', error: error.message };
+    }
   });
 
   // 系统控制
@@ -270,6 +315,7 @@ app.whenReady().then(async () => {
   createTray();
 
   // AIEngine needs systemControl and mainWindow
+  settingsStore.set('agentBackend', 'mimo');
   aiEngine = new AIEngine(systemControl, mainWindow);
 
   setupIPC();

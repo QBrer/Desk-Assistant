@@ -156,7 +156,7 @@ AI_CONFIG: {
 
 ## Hermes 后端模式
 
-默认 `LAIN_AGENT_BACKEND=mimo` 时，Lain 直接调用小米 MiMo 模型。改为 `LAIN_AGENT_BACKEND=hermes` 后，Lain 会把 Hermes 当作可选 agent brain，通过本地 Hermes API Server 的 OpenAI-compatible `/v1/chat/completions` 调用。
+Lain 启动时默认使用快速模式 MiMo，主窗口内可以切换到 Agent 模式 Hermes。`.env` 中的 `LAIN_AGENT_BACKEND` 只作为高级默认项保留，日常不建议写成 `hermes`，避免启动后误走高延迟链路。选择 Hermes 后，Lain 会把 Hermes 当作可选 agent brain，通过本地 Hermes API Server 的 OpenAI-compatible `/v1/chat/completions` 调用。
 
 v1 的工具边界仍由 Lain 控制：Hermes 可以返回标准 `tool_calls`，但真实的 Windows 文件、程序、网页、Skill 和删除确认都继续走 Lain 现有工具系统，不使用 Hermes Runs API 或 Hermes 自带工具直接操作本机。
 

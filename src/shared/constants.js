@@ -39,6 +39,8 @@ module.exports = {
     AI_STREAM_END: 'ai:stream-end',
     AI_STREAM_ERROR: 'ai:stream-error',
     AI_STOP: 'ai:stop',
+    AI_GET_BACKEND: 'ai:get-backend',
+    AI_SET_BACKEND: 'ai:set-backend',
 
     // 系统控制
     SYS_EXECUTE: 'sys:execute',

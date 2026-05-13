@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onStreamEnd: (callback) => ipcRenderer.on(IPC_CHANNELS.AI_STREAM_END, () => callback()),
   onStreamError: (callback) => ipcRenderer.on(IPC_CHANNELS.AI_STREAM_ERROR, (_, error) => callback(error)),
   stopGeneration: () => ipcRenderer.send(IPC_CHANNELS.AI_STOP),
+  getAIBackend: () => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_BACKEND),
+  setAIBackend: (backend) => ipcRenderer.invoke(IPC_CHANNELS.AI_SET_BACKEND, backend),
 
   // 系统控制
   executeCommand: (command) => ipcRenderer.invoke(IPC_CHANNELS.SYS_EXECUTE, command),

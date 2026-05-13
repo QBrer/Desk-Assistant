@@ -29,6 +29,102 @@
   scroll-behavior: smooth;
 }
 
+
+/* 后端选择 */
+.backend-switcher {
+  border: 1px solid rgba(0, 255, 65, 0.18);
+  background: rgba(0, 12, 18, 0.72);
+  border-radius: 6px;
+  padding: 8px;
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.06);
+}
+
+.backend-switcher-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.backend-label {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--neon-green);
+  letter-spacing: 0;
+}
+
+.backend-actions {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.backend-btn {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(0, 212, 255, 0.24);
+  border-radius: 4px;
+  background: rgba(0, 212, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.backend-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: rgba(0, 212, 255, 0.45);
+}
+
+.backend-btn.active {
+  color: var(--neon-green);
+  background: rgba(0, 255, 65, 0.1);
+  border-color: rgba(0, 255, 65, 0.42);
+}
+
+.backend-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.backend-message {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 255, 65, 0.12);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.backend-message.error {
+  color: #ff8aa0;
+}
+
+.backend-message.hidden {
+  display: none;
+}
+
+@media (max-width: 390px) {
+  .backend-switcher-main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .backend-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .backend-btn {
+    padding: 0 6px;
+  }
+}
+
 /* 消息基础 */
 .message {
   display: flex;

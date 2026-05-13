@@ -371,8 +371,32 @@ class AIEngine {
   }
 
   _getAgentBackend() {
-    const rawValue = this.store.get('agentBackend') || process.env.LAIN_AGENT_BACKEND || this._readProjectEnvValue('LAIN_AGENT_BACKEND') || 'mimo';
+    const rawValue = this.store.get('agentBackend') || 'mimo';
     return String(rawValue).trim().toLowerCase() === 'hermes' ? 'hermes' : 'mimo';
+  }
+
+  getBackendStatus() {
+    return {
+      backend: this.backendName || 'mimo',
+      model: this._getModel(),
+      ready: !!this.backend,
+      processing: this._isProcessing,
+    };
+  }
+
+  async updateBackend(backend) {
+    const normalized = String(backend || '').trim().toLowerCase();
+    if (!['mimo', 'hermes'].includes(normalized)) {
+      throw new Error('无效的后端，只能选择 mimo 或 hermes。');
+    }
+    if (this._isProcessing) {
+      throw new Error('玲音正在回复或执行任务，完成后再切换后端。');
+    }
+    this.store.set('agentBackend', normalized);
+    this.backendName = normalized;
+    this._clientReady = this._initClient();
+    await this._clientReady;
+    return this.getBackendStatus();
   }
 
   _getMimoModel() {

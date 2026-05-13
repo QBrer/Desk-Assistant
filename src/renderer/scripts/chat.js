@@ -11,6 +11,10 @@ class ChatManager {
     this.confirmText = document.getElementById('confirm-text');
     this.confirmYes = document.getElementById('confirm-yes');
     this.confirmNo = document.getElementById('confirm-no');
+    this.backendLabel = document.getElementById('backend-label');
+    this.backendMimoBtn = document.getElementById('backend-mimo-btn');
+    this.backendHermesBtn = document.getElementById('backend-hermes-btn');
+    this.backendMessage = document.getElementById('backend-message');
 
     this.isStreaming = false;
     this.currentStreamElement = null;
@@ -18,6 +22,7 @@ class ChatManager {
 
     this._setupEvents();
     this._setupAPIListeners();
+    this._setupBackendSwitcher();
   }
 
   /**
@@ -48,6 +53,9 @@ class ChatManager {
     this.confirmNo?.addEventListener('click', () => {
       this._resolveConfirm(false);
     });
+
+    this.backendMimoBtn?.addEventListener('click', () => this.setBackend('mimo'));
+    this.backendHermesBtn?.addEventListener('click', () => this.setBackend('hermes'));
   }
 
   /**
@@ -78,6 +86,74 @@ class ChatManager {
     window.electronAPI.onConfirmRequest((data) => {
       this.showConfirm(data.message, data.id);
     });
+  }
+
+
+  async _setupBackendSwitcher() {
+    if (!window.electronAPI?.getAIBackend) return;
+    try {
+      const status = await window.electronAPI.getAIBackend();
+      this._updateBackendUI(status?.backend || 'mimo');
+    } catch (error) {
+      this._showBackendMessage(`后端状态读取失败：${error.message || error}`, true);
+    }
+  }
+
+  async setBackend(backend) {
+    if (this.isStreaming) {
+      this._showBackendMessage('玲音正在回复，完成后再切换后端。', true);
+      return;
+    }
+    if (!window.electronAPI?.setAIBackend) return;
+
+    this._setBackendButtonsDisabled(true);
+    this._showBackendMessage(backend === 'hermes' ? '正在检查 Hermes...' : '正在切换到 MiMo...');
+
+    try {
+      const result = await window.electronAPI.setAIBackend(backend);
+      if (!result?.success) {
+        this._updateBackendUI(result?.backend || 'mimo');
+        const command = result?.command ? `\n\n启动命令：\n${result.command}` : '';
+        this._showBackendMessage(`${result?.error || '后端切换失败'}${command}`, true);
+        return;
+      }
+      this._updateBackendUI(result.backend || backend);
+      this._showBackendMessage(result.backend === 'hermes' ? '已切换到 Agent 模式 Hermes。' : '已切换到快速模式 MiMo。');
+    } catch (error) {
+      this._showBackendMessage(`后端切换失败：${error.message || error}`, true);
+    } finally {
+      this._setBackendButtonsDisabled(false);
+    }
+  }
+
+  _updateBackendUI(backend) {
+    const normalized = backend === 'hermes' ? 'hermes' : 'mimo';
+    if (this.backendLabel) {
+      this.backendLabel.textContent = `BACKEND: ${normalized.toUpperCase()}`;
+    }
+    this.backendMimoBtn?.classList.toggle('active', normalized === 'mimo');
+    this.backendHermesBtn?.classList.toggle('active', normalized === 'hermes');
+  }
+
+  _showBackendMessage(message, isError = false) {
+    if (!this.backendMessage) return;
+    if (!message) {
+      this.backendMessage.classList.add('hidden');
+      this.backendMessage.textContent = '';
+      return;
+    }
+    this.backendMessage.textContent = message;
+    this.backendMessage.classList.toggle('error', !!isError);
+    this.backendMessage.classList.remove('hidden');
+    if (!isError) {
+      clearTimeout(this._backendMessageTimer);
+      this._backendMessageTimer = setTimeout(() => this._showBackendMessage(''), 2800);
+    }
+  }
+
+  _setBackendButtonsDisabled(disabled) {
+    if (this.backendMimoBtn) this.backendMimoBtn.disabled = disabled;
+    if (this.backendHermesBtn) this.backendHermesBtn.disabled = disabled;
   }
 
   /**
