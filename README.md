@@ -160,12 +160,12 @@ AI_CONFIG: {
 
 v1 的工具边界仍由 Lain 控制：Hermes 可以返回标准 `tool_calls`，但真实的 Windows 文件、程序、网页、Skill 和删除确认都继续走 Lain 现有工具系统，不使用 Hermes Runs API 或 Hermes 自带工具直接操作本机。
 
-当前机器只检测到 `docker-desktop` WSL2 发行版；如果要安装 Hermes，建议先安装普通 Ubuntu/Debian WSL2 发行版，再把 Hermes 放到项目内的 `.local/hermes`，避免占用 C 盘：
+建议使用普通 Ubuntu/Debian WSL2 发行版运行 Hermes，并把 Hermes 放到项目内的 `.local/hermes`，避免占用 C 盘。当前推荐路径：
 
 ```bash
 cd /mnt/e/PROJRCT/Lain-DesktopAssistant
 mkdir -p .local/hermes
-# 在这个目录中按 Hermes 官方文档安装/运行 hermes gateway
+# Hermes 已可安装到 .local/hermes/agent，并把配置数据放到 .local/hermes/home
 ```
 
 WSL 侧 Hermes 配置示例：
