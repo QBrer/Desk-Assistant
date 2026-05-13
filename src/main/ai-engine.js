@@ -1,5 +1,5 @@
 const Store = require('electron-store');
-const { AI_CONFIG, LAIN_SYSTEM_PROMPT } = require('../shared/constants');
+const { AI_CONFIG, HERMES_CONFIG, LAIN_SYSTEM_PROMPT } = require('../shared/constants');
 
 // Function Calling 工具定义
 const TOOLS = [
@@ -252,6 +252,39 @@ const TOOLS = [
   },
 ];
 
+class OpenAICompatibleBackend {
+  constructor({ name, client, model, maxTokens, temperature }) {
+    this.name = name;
+    this.client = client;
+    this.model = model;
+    this.maxTokens = maxTokens;
+    this.temperature = temperature;
+  }
+
+  async createChatCompletion({ messages, tools }) {
+    return await this.client.chat.completions.create({
+      model: this.model,
+      messages,
+      max_tokens: this.maxTokens(),
+      temperature: this.temperature,
+      tools,
+      tool_choice: 'auto',
+    });
+  }
+}
+
+class MimoBackend extends OpenAICompatibleBackend {
+  constructor(options) {
+    super({ ...options, name: 'mimo' });
+  }
+}
+
+class HermesBackend extends OpenAICompatibleBackend {
+  constructor(options) {
+    super({ ...options, name: 'hermes' });
+  }
+}
+
 class AIEngine {
   constructor(systemControl, mainWindow) {
     this.store = new Store();
@@ -260,6 +293,8 @@ class AIEngine {
     this.conversationHistory = [];
     this.maxHistory = Infinity;
     this.client = null;
+    this.backend = null;
+    this.backendName = 'mimo';
     this.skillSummary = '';
     this._aborted = false;
     this._isProcessing = false;
@@ -271,6 +306,22 @@ class AIEngine {
   }
 
   async _initClient() {
+    this.client = null;
+    this.backend = null;
+    this.backendName = this._getAgentBackend();
+
+    const { default: OpenAI } = await import('openai');
+
+    if (this.backendName === 'hermes') {
+      const apiKey = this.store.get('hermesApiKey') || process.env.LAIN_HERMES_API_KEY || this._readProjectEnvValue('LAIN_HERMES_API_KEY') || HERMES_CONFIG.API_KEY;
+      const baseURL = this.store.get('hermesBaseURL') || process.env.LAIN_HERMES_BASE_URL || this._readProjectEnvValue('LAIN_HERMES_BASE_URL') || HERMES_CONFIG.BASE_URL;
+      const model = this._getHermesModel();
+      this.client = new OpenAI({ apiKey, baseURL });
+      this.backend = new HermesBackend({ client: this.client, model, maxTokens: () => this._getMaxTokens(), temperature: AI_CONFIG.TEMPERATURE });
+      console.log('[AI] Using Hermes backend: ' + baseURL + ' (' + model + ')');
+      return;
+    }
+
     let apiKey = this.store.get('apiKey') || process.env.XIAOMI_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
     
     if (!apiKey) {
@@ -306,11 +357,10 @@ class AIEngine {
       return;
     }
 
-    const { default: OpenAI } = await import('openai');
-    this.client = new OpenAI({
-      apiKey: apiKey,
-      baseURL: baseURL,
-    });
+    const model = this._getMimoModel();
+    this.client = new OpenAI({ apiKey, baseURL });
+    this.backend = new MimoBackend({ client: this.client, model, maxTokens: () => this._getMaxTokens(), temperature: AI_CONFIG.TEMPERATURE });
+    console.log('[AI] Using MiMo backend: ' + baseURL + ' (' + model + ')');
   }
 
   /**
@@ -320,8 +370,21 @@ class AIEngine {
     this.mainWindow = win;
   }
 
+  _getAgentBackend() {
+    const rawValue = this.store.get('agentBackend') || process.env.LAIN_AGENT_BACKEND || this._readProjectEnvValue('LAIN_AGENT_BACKEND') || 'mimo';
+    return String(rawValue).trim().toLowerCase() === 'hermes' ? 'hermes' : 'mimo';
+  }
+
+  _getMimoModel() {
+    return this.store.get('model') || process.env.LAIN_MIMO_MODEL || this._readProjectEnvValue('LAIN_MIMO_MODEL') || AI_CONFIG.MODEL;
+  }
+
+  _getHermesModel() {
+    return this.store.get('hermesModel') || process.env.LAIN_HERMES_MODEL || this._readProjectEnvValue('LAIN_HERMES_MODEL') || HERMES_CONFIG.MODEL;
+  }
+
   _getModel() {
-    return this.store.get('model', AI_CONFIG.MODEL);
+    return this.backendName === 'hermes' ? this._getHermesModel() : this._getMimoModel();
   }
 
   _formatAPIError(error) {
@@ -459,7 +522,10 @@ class AIEngine {
       await this._clientReady;
       await this._refreshSkillSummary();
 
-      if (!this.client) {
+      if (!this.backend) {
+        if (this.backendName === 'hermes') {
+          throw new Error('Hermes 后端未就绪。请确认 WSL2 中的 hermes gateway 已启动，并检查 LAIN_HERMES_BASE_URL / LAIN_HERMES_API_KEY。');
+        }
         throw new Error('未配置 API Key。请在本机设置 XIAOMI_API_KEY 环境变量，或在应用设置中保存 apiKey。');
       }
 
@@ -485,13 +551,9 @@ class AIEngine {
           ...this.conversationHistory,
         ];
 
-        const response = await this.client.chat.completions.create({
-          model: this._getModel(),
+        const response = await this.backend.createChatCompletion({
           messages,
-          max_tokens: this._getMaxTokens(),
-          temperature: AI_CONFIG.TEMPERATURE,
           tools: TOOLS,
-          tool_choice: 'auto',
         });
 
         const choice = response.choices[0];

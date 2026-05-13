@@ -8,6 +8,13 @@ module.exports = {
     TEMPERATURE: 0.7,
   },
 
+  // Hermes Agent API Server 配置（可选后端）
+  HERMES_CONFIG: {
+    BASE_URL: 'http://127.0.0.1:8642/v1',
+    API_KEY: 'change-me-local-dev',
+    MODEL: 'hermes-agent',
+  },
+
   // 窗口配置
   WINDOW_CONFIG: {
     WIDTH: 420,

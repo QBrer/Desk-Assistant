@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 .vscode/
 dist/
 build/
@@ -24,3 +24,6 @@ lain_workspace/*
 
 # 测试/临时音频文件
 lain-voice-model/test_*.wav
+
+# Local external runtimes / tools
+.local/

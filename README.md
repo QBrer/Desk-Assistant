@@ -96,6 +96,13 @@ XIAOMI_API_KEY=your_xiaomi_mimo_api_key
 LAIN_STT_PROVIDER=local
 MIMO_ASR_MODEL=mimo-v2-omni
 LAIN_MAX_TOKENS=32768
+
+# Agent backend: mimo = 默认 MiMo 直连模型；hermes = 本地 Hermes Agent API Server
+LAIN_AGENT_BACKEND=mimo
+LAIN_MIMO_MODEL=mimo-v2.5-pro
+LAIN_HERMES_BASE_URL=http://127.0.0.1:8642/v1
+LAIN_HERMES_API_KEY=change-me-local-dev
+LAIN_HERMES_MODEL=hermes-agent
 ```
 
 常用环境变量：
@@ -147,6 +154,35 @@ AI_CONFIG: {
 
 主进程通过 OpenAI SDK 的兼容接口调用 MiMo，因此只要服务端接口保持 OpenAI-compatible，模型和 Base URL 可以在这里替换。
 
+## Hermes 后端模式
+
+默认 `LAIN_AGENT_BACKEND=mimo` 时，Lain 直接调用小米 MiMo 模型。改为 `LAIN_AGENT_BACKEND=hermes` 后，Lain 会把 Hermes 当作可选 agent brain，通过本地 Hermes API Server 的 OpenAI-compatible `/v1/chat/completions` 调用。
+
+v1 的工具边界仍由 Lain 控制：Hermes 可以返回标准 `tool_calls`，但真实的 Windows 文件、程序、网页、Skill 和删除确认都继续走 Lain 现有工具系统，不使用 Hermes Runs API 或 Hermes 自带工具直接操作本机。
+
+当前机器只检测到 `docker-desktop` WSL2 发行版；如果要安装 Hermes，建议先安装普通 Ubuntu/Debian WSL2 发行版，再把 Hermes 放到项目内的 `.local/hermes`，避免占用 C 盘：
+
+```bash
+cd /mnt/e/PROJRCT/Lain-DesktopAssistant
+mkdir -p .local/hermes
+# 在这个目录中按 Hermes 官方文档安装/运行 hermes gateway
+```
+
+WSL 侧 Hermes 配置示例：
+
+```env
+API_SERVER_ENABLED=true
+API_SERVER_KEY=change-me-local-dev
+```
+
+启动 `hermes gateway` 后，再在 Lain 的 `.env` 中设置：
+
+```env
+LAIN_AGENT_BACKEND=hermes
+LAIN_HERMES_BASE_URL=http://127.0.0.1:8642/v1
+LAIN_HERMES_API_KEY=change-me-local-dev
+LAIN_HERMES_MODEL=hermes-agent
+```
 ## 语音识别
 
 ### 本地 faster-whisper
