@@ -8,12 +8,16 @@ class SystemControl {
     this.pendingConfirmations = new Map();
     this.basePath = path.resolve(basePath || process.cwd());
     this.workspacePath = path.join(this.basePath, 'lain_workspace');
+    this.workdayPath = this.getCurrentWorkdayPath();
     this.legacyWorkspacePaths = [
       path.resolve('E:/PROJRCT/Desk-assistant/lain_workspace'),
     ];
 
     if (!fs.existsSync(this.workspacePath)) {
       fs.mkdirSync(this.workspacePath, { recursive: true });
+    }
+    if (!fs.existsSync(this.workdayPath)) {
+      fs.mkdirSync(this.workdayPath, { recursive: true });
     }
   }
 
@@ -65,8 +69,42 @@ class SystemControl {
     }
   }
 
-  resolveWorkspacePath(filePath) {
-    if (!filePath) return this.workspacePath;
+  getCurrentWorkdayPath(date = new Date()) {
+    const folder = `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+    return path.join(this.workspacePath, folder);
+  }
+
+  ensureCurrentWorkdayPath() {
+    this.workdayPath = this.getCurrentWorkdayPath();
+    if (!fs.existsSync(this.workdayPath)) {
+      fs.mkdirSync(this.workdayPath, { recursive: true });
+    }
+    return this.workdayPath;
+  }
+
+  isDateWorkspaceName(name) {
+    return /^\d{4}\.\d{1,2}\.\d{1,2}$/.test(name || '');
+  }
+
+  isSkillRelativePath(relativePath) {
+    const first = (relativePath || '').split(path.sep)[0];
+    return !!first && fs.existsSync(path.join(this.workspacePath, first, 'SKILL.md'));
+  }
+
+  stripWorkspacePrefix(filePath) {
+    const normalizedPath = String(filePath || '').replace(/[\\/]+/g, path.sep);
+    const workspaceName = path.basename(this.workspacePath);
+    if (normalizedPath === workspaceName) return '';
+    if (normalizedPath.startsWith(`${workspaceName}${path.sep}`)) {
+      return normalizedPath.slice(workspaceName.length + 1);
+    }
+    return normalizedPath;
+  }
+
+  resolveWorkspacePath(filePath, options = {}) {
+    const forWrite = !!options.forWrite;
+    const activeWorkdayPath = this.ensureCurrentWorkdayPath();
+    if (!filePath) return activeWorkdayPath;
 
     if (path.isAbsolute(filePath)) {
       const resolvedPath = path.resolve(filePath);
@@ -75,17 +113,37 @@ class SystemControl {
         return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
       });
       if (legacyRoot) {
-        return path.resolve(this.workspacePath, path.relative(legacyRoot, resolvedPath));
+        const legacyRelative = path.relative(legacyRoot, resolvedPath);
+        return this.resolveWorkspacePath(legacyRelative, options);
+      }
+
+      const relative = path.relative(this.workspacePath, resolvedPath);
+      const insideWorkspace = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+      if (insideWorkspace && forWrite) {
+        if (!relative || relative === '.') return activeWorkdayPath;
+        const first = relative.split(path.sep)[0];
+        if (!this.isDateWorkspaceName(first) && !this.isSkillRelativePath(relative)) {
+          return path.resolve(activeWorkdayPath, relative);
+        }
       }
       return resolvedPath;
     }
 
-    const normalizedPath = filePath.replace(/[\\/]+/g, path.sep);
-    if (normalizedPath === path.basename(this.workspacePath) || normalizedPath.startsWith(`${path.basename(this.workspacePath)}${path.sep}`)) {
-      return path.resolve(this.basePath, normalizedPath);
+    const normalizedPath = this.stripWorkspacePrefix(filePath);
+    if (!normalizedPath) return forWrite ? activeWorkdayPath : this.workspacePath;
+
+    const first = normalizedPath.split(path.sep)[0];
+    if (this.isDateWorkspaceName(first) || this.isSkillRelativePath(normalizedPath)) {
+      return path.resolve(this.workspacePath, normalizedPath);
     }
 
-    return path.resolve(this.workspacePath, normalizedPath);
+    const rootCandidate = path.resolve(this.workspacePath, normalizedPath);
+    const workdayCandidate = path.resolve(activeWorkdayPath, normalizedPath);
+    if (!forWrite && fs.existsSync(rootCandidate) && !fs.existsSync(workdayCandidate)) {
+      return rootCandidate;
+    }
+
+    return workdayCandidate;
   }
 
   isInsideWorkspace(filePath) {
@@ -362,7 +420,7 @@ class SystemControl {
 
       try {
         child = spawn(launcher.command, [...launcher.args, resolvedPath, ...args], {
-          cwd: this.workspacePath,
+          cwd: this.ensureCurrentWorkdayPath(),
           detached: true,
           stdio: 'ignore',
           windowsHide: false,
@@ -403,7 +461,7 @@ class SystemControl {
   runPythonWithLauncher(launcher, resolvedPath, args, timeoutMs) {
     return new Promise((resolve) => {
       const child = spawn(launcher.command, [...launcher.args, resolvedPath, ...args], {
-        cwd: this.workspacePath,
+        cwd: this.ensureCurrentWorkdayPath(),
         windowsHide: true,
       });
 
@@ -501,7 +559,7 @@ class SystemControl {
 
   async writeFile(filePath, content) {
     try {
-      const resolvedPath = this.resolveWorkspacePath(filePath);
+      const resolvedPath = this.resolveWorkspacePath(filePath, { forWrite: true });
       if (!this.isInsideWorkspace(resolvedPath)) {
         return { success: false, error: '权限被拒绝：只能在 lain_workspace 文件夹内新建或修改文件。' };
       }

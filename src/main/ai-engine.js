@@ -793,25 +793,34 @@ class AIEngine {
 
   _buildSystemPrompt() {
     const workspacePath = this.systemControl?.workspacePath || 'lain_workspace';
+    const workdayPath = this.systemControl?.ensureCurrentWorkdayPath?.() || workspacePath;
     const basePath = this.systemControl?.basePath || process.cwd();
     const basePrompt = LAIN_SYSTEM_PROMPT.replace(/__WORKSPACE_PATH__/g, workspacePath);
     const workspaceHint = `
 
-## 当前真实工作区
-- 项目根目录: ${basePath}
-- 工作区目录: ${workspacePath}
-- 下载、创建、修改文件时，优先直接使用这个工作区目录。
-- 不要再尝试旧目录 E:\\PROJRCT\\Desk-assistant；项目已经更名为 Lain-DesktopAssistant。`;
+## Current Workspace
+- Project root: ${basePath}
+- Workspace root: ${workspacePath}
+- Current day work folder: ${workdayPath}
+- lain_workspace is still the root workspace. Do not treat it as replaced by the dated folder.
+- Put newly created task outputs in the current day work folder, including temporary scripts, JSON specs, exported PPT/PDF/images, downloads, and generated research assets.
+- Skills, existing reference files, and user-provided long-lived assets can remain directly under lain_workspace. Read and use them there; do not move them just for date grouping.
+- Do not try the old directory E:\\PROJRCT\\Desk-assistant. The project has been renamed to Lain-DesktopAssistant.
+
+## Python And Skill Execution
+- When a task can use a skill, call list_skills first, then read_skill for the full instructions.
+- If a skill provides an executable script, prefer running that script directly with run_python_file and pass input/output paths through args.
+- Do not generate a Python wrapper whose only purpose is to call another script. Avoid subprocess, os.system, popen, and similar system calls because the safety layer blocks them.
+- For PPT skills, write the content spec JSON into the current day work folder, then run the skill script directly, for example ppt-research-style/scripts/create_research_ppt.py, with the JSON path and output PPTX path in args.`;
 
     if (!this.skillSummary) return `${basePrompt}${workspaceHint}`;
 
     return `${basePrompt}${workspaceHint}
 
-## 可用 Skills
-以下 skill 位于 lain_workspace。遇到匹配任务时，先调用 list_skills 确认可用能力，再调用 read_skill 读取完整说明，然后按 skill 中的脚本、资产和参考资料执行。
+## Available Skills
+The following skills are under the lain_workspace root. For matching tasks, call list_skills, then read_skill, follow the skill scripts/assets/references, and still write task outputs into the current day work folder.
 ${this.skillSummary}`;
   }
-
   /**
    * 请求用户确认（删除操作 — 最高权限）
    */

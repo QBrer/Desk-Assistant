@@ -260,10 +260,12 @@ lain_workspace/
 
 ## 工作区与安全限制
 
-- 普通文件读写建议放在 `lain_workspace/` 下。
-- Python 脚本建议也放在 `lain_workspace/` 下，再由工具调用。
-- 删除文件需要用户确认。
-- `.env`、模型权重、缓存目录不应提交到远程仓库。
+- `lain_workspace/` remains Lain's root workspace. Skills, user-provided files, and long-lived assets should stay there.
+- New task outputs are grouped into the current day folder by default, for example `lain_workspace/2026.5.13/`, so the root workspace stays tidy.
+- `lain_workspace/*/SKILL.md` is still scanned from the root workspace. Dated folders do not affect skills such as `ppt-research-style`.
+- When using a Skill script, prefer running the Skill's own script with `run_python_file` and pass JSON input/output paths via `args`; do not generate a `subprocess` wrapper script.
+- Deleting files requires user confirmation.
+- Do not commit `.env`, model weights, or local cache directories.
 
 ## 常见问题
 
