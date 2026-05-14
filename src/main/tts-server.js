@@ -9,7 +9,7 @@ const http = require('http');
 const net = require('net');
 const fs = require('fs');
 
-const PYTHON_EXE = 'E:/anconda/envs/py310/python.exe';
+const { PYTHON_EXE } = require('../shared/constants');
 const TTS_PORT = 9880;
 const TTS_HOST = '127.0.0.1';
 const TTS_BASE_URL = `http://${TTS_HOST}:${TTS_PORT}`;

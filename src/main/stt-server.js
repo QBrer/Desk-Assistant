@@ -9,7 +9,7 @@ const https = require('https');
 const net = require('net');
 const fs = require('fs');
 
-const PYTHON_EXE = 'E:/anconda/envs/py310/python.exe';
+const { PYTHON_EXE } = require('../shared/constants');
 const STT_PORT = 9870;
 const STT_HOST = '127.0.0.1';
 const STT_BASE_URL = `http://${STT_HOST}:${STT_PORT}`;

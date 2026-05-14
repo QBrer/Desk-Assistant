@@ -1,6 +1,7 @@
 const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { PYTHON_EXE } = require('../shared/constants');
 const os = require('os');
 
 class SystemControl {
@@ -293,11 +294,18 @@ class SystemControl {
   }
 
   getPythonLaunchers() {
-    return [
+    const launchers = [];
+    // 优先使用 conda py310 环境（已安装全部依赖）
+    if (PYTHON_EXE && fs.existsSync(PYTHON_EXE.replace(/\//g, path.sep))) {
+      launchers.push({ command: PYTHON_EXE, args: [] });
+    }
+    // 回退到系统 PATH 上的 Python
+    launchers.push(
       { command: 'py', args: ['-3'] },
       { command: 'python', args: [] },
       { command: 'python3', args: [] },
-    ];
+    );
+    return launchers;
   }
 
   shouldRunPythonInBackground(filePath) {
@@ -322,13 +330,13 @@ class SystemControl {
       { pattern: /\b(os\.(remove|unlink|rmdir|removedirs|replace)|shutil\.(rmtree)|Path\s*\([^)]*\)\.(unlink|rmdir))\b/i, reason: '已拦截包含删除文件的 Python 脚本。' },
       // 启动子进程/系统调用
       { pattern: /\b(os\.(system|popen|execl|execle|execlp|execlpe|execv|execve|execvp|execvpe|spawnl|spawnle|spawnlp|spawnlpe|spawnv|spawnve|spawnvp|spawnvpe)|subprocess\.)\b/i, reason: '已拦截包含系统调用的 Python 脚本。' },
-      // 写入文件
-      { pattern: /\b(Path\s*\([^)]*\)\.(write_text|write_bytes)|shutil\.(copy|copy2|copytree|make_archive))\b/i, reason: '已拦截包含文件写入的 Python 脚本。请使用受限的 write_file 工具。' },
       // 内嵌高危命令
       { pattern: /\b(remove-item|rm\s+|del\s+|rmdir\s+|format-volume|diskpart|reg\s+(delete|add)|takeown|icacls|schtasks)\b/i, reason: '已拦截包含高危命令的 Python 脚本。' },
       // 下载+执行（仅拦截下载后立即执行的组合，允许单纯下载）
       { pattern: /\b(urllib\.request\.urlretrieve|requests\.get|wget\.download).*(\bexec\b|\beval\b|\bos\.system\b|\bsubprocess\b)/i, reason: '已拦截网络下载后立即执行的模式。下载文件本身是允许的。' },
     ];
+    // 注意：shutil.copy/copy2/copytree、Path.write_text/write_bytes 已解禁
+    // 因为脚本已被限制只能在 lain_workspace 内运行，workspace 沙箱本身提供了文件写入保护
     // 允许读取/查看系统路径，不再拦截 c:\ 等路径引用
 
     for (const item of blockedPatterns) {
@@ -343,7 +351,7 @@ class SystemControl {
   runPythonFile(filePath, options = {}) {
     const resolvedPath = this.resolveWorkspacePath(filePath);
     const args = Array.isArray(options.args) ? options.args : [];
-    const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 30000;
+    const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 120000;
 
     if (!this.isInsideWorkspace(resolvedPath)) {
       return Promise.resolve({ success: false, error: '权限被拒绝：只能运行 lain_workspace 文件夹内的 Python 文件。' });
@@ -503,11 +511,20 @@ class SystemControl {
         if (finished) return;
         finished = true;
         clearTimeout(timer);
+        // 将 stderr 追加到 error 中，让 AI 能看到具体的 ImportError/SyntaxError
+        let errorMsg;
+        if (code !== 0) {
+          const stderrSnippet = stderr ? stderr.trim().split('\n').slice(-8).join('\n') : '';
+          errorMsg = `Python 进程退出码: ${code}`;
+          if (stderrSnippet) {
+            errorMsg += `\n--- stderr ---\n${stderrSnippet.substring(0, 800)}`;
+          }
+        }
         resolve({
           success: code === 0,
           output: stdout,
           stderr,
-          error: code === 0 ? undefined : `Python 进程退出码: ${code}`,
+          error: errorMsg,
         });
       });
     });

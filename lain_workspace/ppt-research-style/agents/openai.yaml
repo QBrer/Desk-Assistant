@@ -1,0 +1,4 @@
+interface:
+  display_name: "PPT Research Style"
+  short_description: "Build dense Chinese research PPT decks."
+  default_prompt: "Use $ppt-research-style to create a Chinese research presentation from my outline and evidence figures."

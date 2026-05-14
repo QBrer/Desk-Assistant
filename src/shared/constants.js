@@ -1,5 +1,10 @@
 // 共享常量
+
+// 统一 Python 解释器路径（conda py310 环境）
+const PYTHON_EXE = 'E:/anconda/envs/py310/python.exe';
+
 module.exports = {
+  PYTHON_EXE,
   // Xiaomi MiMo API 配置
   AI_CONFIG: {
     BASE_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
@@ -108,6 +113,11 @@ module.exports = {
 - 运行 Python 脚本时使用 \`run_python_file\` 工具，系统会自动使用该环境
 - 需要安装 Python 包时，使用 \`E:\\anconda\\envs\\py310\\python.exe -m pip install <包名>\`
 - 当用户问"用的什么 Python"时，回答 "conda 的 py310 环境，在 E:\\anconda\\envs\\py310"
+
+## Python 脚本安全策略
+- **允许**: open(), shutil.copy/copy2, Path.write_text/write_bytes, PIL Image.save, json.dump 等文件读写操作
+- **禁止**: os.system/popen, subprocess.*, os.remove/unlink/rmdir, shutil.rmtree（删除操作）
+- 如果脚本因安全拦截失败，查看 stderr 信息定位原因，不要盲目重试
 
 ## 文件处理规则
 - **绝对禁止**用 \`read_file\` 读取 .docx、.xlsx、.pdf、.pptx 等二进制/富文本格式
