@@ -13,6 +13,7 @@ class ChatManager {
     this.confirmNo = document.getElementById('confirm-no');
     this.backendLabel = document.getElementById('backend-label');
     this.backendMimoBtn = document.getElementById('backend-mimo-btn');
+    this.backendDeepSeekBtn = document.getElementById('backend-deepseek-btn');
     this.backendHermesBtn = document.getElementById('backend-hermes-btn');
     this.backendMessage = document.getElementById('backend-message');
 
@@ -55,6 +56,7 @@ class ChatManager {
     });
 
     this.backendMimoBtn?.addEventListener('click', () => this.setBackend('mimo'));
+    this.backendDeepSeekBtn?.addEventListener('click', () => this.setBackend('deepseek'));
     this.backendHermesBtn?.addEventListener('click', () => this.setBackend('hermes'));
   }
 
@@ -107,7 +109,7 @@ class ChatManager {
     if (!window.electronAPI?.setAIBackend) return;
 
     this._setBackendButtonsDisabled(true);
-    this._showBackendMessage(backend === 'hermes' ? '正在检查 Hermes...' : '正在切换到 MiMo...');
+    this._showBackendMessage(this._getBackendSwitchingMessage(backend));
 
     try {
       const result = await window.electronAPI.setAIBackend(backend);
@@ -118,7 +120,7 @@ class ChatManager {
         return;
       }
       this._updateBackendUI(result.backend || backend);
-      this._showBackendMessage(result.backend === 'hermes' ? '已切换到 Agent 模式 Hermes。' : '已切换到快速模式 MiMo。');
+      this._showBackendMessage(this._getBackendSuccessMessage(result.backend || backend));
     } catch (error) {
       this._showBackendMessage(`后端切换失败：${error.message || error}`, true);
     } finally {
@@ -127,12 +129,25 @@ class ChatManager {
   }
 
   _updateBackendUI(backend) {
-    const normalized = backend === 'hermes' ? 'hermes' : 'mimo';
+    const normalized = ['mimo', 'deepseek', 'hermes'].includes(backend) ? backend : 'mimo';
     if (this.backendLabel) {
       this.backendLabel.textContent = `BACKEND: ${normalized.toUpperCase()}`;
     }
     this.backendMimoBtn?.classList.toggle('active', normalized === 'mimo');
+    this.backendDeepSeekBtn?.classList.toggle('active', normalized === 'deepseek');
     this.backendHermesBtn?.classList.toggle('active', normalized === 'hermes');
+  }
+
+  _getBackendSwitchingMessage(backend) {
+    if (backend === 'hermes') return '\u6b63\u5728\u68c0\u67e5 Hermes...';
+    if (backend === 'deepseek') return '\u6b63\u5728\u5207\u6362\u5230 DeepSeek...';
+    return '\u6b63\u5728\u5207\u6362\u5230 MiMo...';
+  }
+
+  _getBackendSuccessMessage(backend) {
+    if (backend === 'hermes') return '\u5df2\u5207\u6362\u5230 Agent \u6a21\u5f0f Hermes\u3002';
+    if (backend === 'deepseek') return '\u5df2\u5207\u6362\u5230\u6df1\u5ea6\u6a21\u5f0f DeepSeek\u3002';
+    return '\u5df2\u5207\u6362\u5230\u5feb\u901f\u6a21\u5f0f MiMo\u3002';
   }
 
   _showBackendMessage(message, isError = false) {
@@ -153,6 +168,7 @@ class ChatManager {
 
   _setBackendButtonsDisabled(disabled) {
     if (this.backendMimoBtn) this.backendMimoBtn.disabled = disabled;
+    if (this.backendDeepSeekBtn) this.backendDeepSeekBtn.disabled = disabled;
     if (this.backendHermesBtn) this.backendHermesBtn.disabled = disabled;
   }
 

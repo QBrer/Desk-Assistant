@@ -1,5 +1,5 @@
 const Store = require('electron-store');
-const { AI_CONFIG, HERMES_CONFIG, LAIN_SYSTEM_PROMPT } = require('../shared/constants');
+const { AI_CONFIG, DEEPSEEK_CONFIG, HERMES_CONFIG, LAIN_SYSTEM_PROMPT } = require('../shared/constants');
 
 // Function Calling 工具定义
 const TOOLS = [
@@ -253,29 +253,49 @@ const TOOLS = [
 ];
 
 class OpenAICompatibleBackend {
-  constructor({ name, client, model, maxTokens, temperature }) {
+  constructor({ name, client, model, maxTokens, temperature, reasoningEffort, extraBody }) {
     this.name = name;
     this.client = client;
     this.model = model;
     this.maxTokens = maxTokens;
     this.temperature = temperature;
+    this.reasoningEffort = reasoningEffort;
+    this.extraBody = extraBody;
   }
 
   async createChatCompletion({ messages, tools }) {
-    return await this.client.chat.completions.create({
+    const request = {
       model: this.model,
       messages,
       max_tokens: this.maxTokens(),
       temperature: this.temperature,
       tools,
       tool_choice: 'auto',
-    });
+    };
+
+    const reasoningEffort = typeof this.reasoningEffort === 'function' ? this.reasoningEffort() : this.reasoningEffort;
+    if (reasoningEffort) {
+      request.reasoning_effort = reasoningEffort;
+    }
+
+    const extraBody = typeof this.extraBody === 'function' ? this.extraBody() : this.extraBody;
+    if (extraBody && Object.keys(extraBody).length > 0) {
+      request.extra_body = extraBody;
+    }
+
+    return await this.client.chat.completions.create(request);
   }
 }
 
 class MimoBackend extends OpenAICompatibleBackend {
   constructor(options) {
     super({ ...options, name: 'mimo' });
+  }
+}
+
+class DeepSeekBackend extends OpenAICompatibleBackend {
+  constructor(options) {
+    super({ ...options, name: 'deepseek' });
   }
 }
 
@@ -322,35 +342,36 @@ class AIEngine {
       return;
     }
 
-    let apiKey = this.store.get('apiKey') || process.env.XIAOMI_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
-    
-    if (!apiKey) {
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const envPaths = [
-          path.join(__dirname, '..', '..', '.env'),
-          path.join(__dirname, '..', '..', '.env.example'),
-        ];
-        for (const envPath of envPaths) {
-          if (!fs.existsSync(envPath)) continue;
+    if (this.backendName === 'deepseek') {
+      const apiKey = this.store.get('deepseekApiKey') || process.env.DEEPSEEK_API_KEY || this._readProjectEnvValue('DEEPSEEK_API_KEY');
+      const baseURL = this.store.get('deepseekBaseURL') || process.env.LAIN_DEEPSEEK_BASE_URL || this._readProjectEnvValue('LAIN_DEEPSEEK_BASE_URL') || DEEPSEEK_CONFIG.BASE_URL;
+      const model = this._getDeepSeekModel();
 
-          const envContent = fs.readFileSync(envPath, 'utf-8');
-          const match = envContent.match(/^(?:XIAOMI_API_KEY|DEEPSEEK_API_KEY|OPENAI_API_KEY)=([^\r\n]+)/m);
-          if (match && match[1] && !match[1].includes('your_')) {
-            apiKey = match[1].trim();
-            break;
-          }
-        }
-      } catch (e) {
-        console.error('Failed to read env file:', e);
+      if (!apiKey) {
+        this.client = null;
+        return;
       }
+
+      this.client = new OpenAI({ apiKey, baseURL });
+      this.backend = new DeepSeekBackend({
+        client: this.client,
+        model,
+        maxTokens: () => this._getMaxTokens(),
+        temperature: AI_CONFIG.TEMPERATURE,
+        reasoningEffort: () => this._getDeepSeekReasoningEffort(),
+        extraBody: () => this._getDeepSeekExtraBody(),
+      });
+      console.log('[AI] Using DeepSeek backend: ' + baseURL + ' (' + model + ')');
+      return;
+    }
+
+    let apiKey = this.store.get('apiKey') || process.env.XIAOMI_API_KEY || process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      apiKey = this._readProjectEnvValue('XIAOMI_API_KEY') || this._readProjectEnvValue('OPENAI_API_KEY');
     }
 
     const baseURL = this.store.get('baseURL', AI_CONFIG.BASE_URL);
-    if (['deepseek-reasoner', 'deepseek-v4-flash', 'deepseek-v4-pro'].includes(this.store.get('model'))) {
-      this.store.set('model', AI_CONFIG.MODEL);
-    }
 
     if (!apiKey) {
       this.client = null;
@@ -359,7 +380,13 @@ class AIEngine {
 
     const model = this._getMimoModel();
     this.client = new OpenAI({ apiKey, baseURL });
-    this.backend = new MimoBackend({ client: this.client, model, maxTokens: () => this._getMaxTokens(), temperature: AI_CONFIG.TEMPERATURE });
+    this.backend = new MimoBackend({
+      client: this.client,
+      model,
+      maxTokens: () => this._getMaxTokens(),
+      temperature: AI_CONFIG.TEMPERATURE,
+      reasoningEffort: () => this._getMimoReasoningEffort(),
+    });
     console.log('[AI] Using MiMo backend: ' + baseURL + ' (' + model + ')');
   }
 
@@ -372,7 +399,8 @@ class AIEngine {
 
   _getAgentBackend() {
     const rawValue = this.store.get('agentBackend') || 'mimo';
-    return String(rawValue).trim().toLowerCase() === 'hermes' ? 'hermes' : 'mimo';
+    const normalized = String(rawValue).trim().toLowerCase();
+    return ['mimo', 'deepseek', 'hermes'].includes(normalized) ? normalized : 'mimo';
   }
 
   getBackendStatus() {
@@ -386,8 +414,8 @@ class AIEngine {
 
   async updateBackend(backend) {
     const normalized = String(backend || '').trim().toLowerCase();
-    if (!['mimo', 'hermes'].includes(normalized)) {
-      throw new Error('无效的后端，只能选择 mimo 或 hermes。');
+    if (!['mimo', 'deepseek', 'hermes'].includes(normalized)) {
+      throw new Error('Invalid backend. Use mimo, deepseek, or hermes.');
     }
     if (this._isProcessing) {
       throw new Error('玲音正在回复或执行任务，完成后再切换后端。');
@@ -403,12 +431,39 @@ class AIEngine {
     return this.store.get('model') || process.env.LAIN_MIMO_MODEL || this._readProjectEnvValue('LAIN_MIMO_MODEL') || AI_CONFIG.MODEL;
   }
 
+  _getDeepSeekModel() {
+    return this.store.get('deepseekModel') || process.env.LAIN_DEEPSEEK_MODEL || this._readProjectEnvValue('LAIN_DEEPSEEK_MODEL') || DEEPSEEK_CONFIG.MODEL;
+  }
+
+  _getDeepSeekReasoningEffort() {
+    const value = this.store.get('deepseekReasoningEffort') || process.env.LAIN_DEEPSEEK_REASONING_EFFORT || this._readProjectEnvValue('LAIN_DEEPSEEK_REASONING_EFFORT') || DEEPSEEK_CONFIG.REASONING_EFFORT;
+    return this._normalizeReasoningEffort(value);
+  }
+
+  _getMimoReasoningEffort() {
+    const value = this.store.get('mimoReasoningEffort') || process.env.LAIN_MIMO_REASONING_EFFORT || this._readProjectEnvValue('LAIN_MIMO_REASONING_EFFORT') || AI_CONFIG.REASONING_EFFORT;
+    return this._normalizeReasoningEffort(value);
+  }
+
+  _getDeepSeekExtraBody() {
+    const value = this.store.get('deepseekThinking') || process.env.LAIN_DEEPSEEK_THINKING || this._readProjectEnvValue('LAIN_DEEPSEEK_THINKING') || 'enabled';
+    const type = String(value || '').trim().toLowerCase() === 'disabled' ? 'disabled' : 'enabled';
+    return { thinking: { type } };
+  }
+
   _getHermesModel() {
     return this.store.get('hermesModel') || process.env.LAIN_HERMES_MODEL || this._readProjectEnvValue('LAIN_HERMES_MODEL') || HERMES_CONFIG.MODEL;
   }
 
   _getModel() {
-    return this.backendName === 'hermes' ? this._getHermesModel() : this._getMimoModel();
+    if (this.backendName === 'hermes') return this._getHermesModel();
+    if (this.backendName === 'deepseek') return this._getDeepSeekModel();
+    return this._getMimoModel();
+  }
+
+  _normalizeReasoningEffort(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['low', 'medium', 'high', 'max'].includes(normalized) ? normalized : '';
   }
 
   _formatAPIError(error) {

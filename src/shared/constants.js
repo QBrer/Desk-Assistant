@@ -11,6 +11,14 @@ module.exports = {
     MODEL: 'mimo-v2.5-pro',
     MAX_TOKENS: 32768,
     TEMPERATURE: 0.7,
+    REASONING_EFFORT: '',
+  },
+
+  // DeepSeek API configuration (optional backend)
+  DEEPSEEK_CONFIG: {
+    BASE_URL: 'https://api.deepseek.com',
+    MODEL: 'deepseek-v4-pro',
+    REASONING_EFFORT: 'high',
   },
 
   // Hermes Agent API Server 配置（可选后端）

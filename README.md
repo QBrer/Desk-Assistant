@@ -97,9 +97,18 @@ LAIN_STT_PROVIDER=local
 MIMO_ASR_MODEL=mimo-v2-omni
 LAIN_MAX_TOKENS=32768
 
-# Agent backend: mimo = 默认 MiMo 直连模型；hermes = 本地 Hermes Agent API Server
+# Agent backend: mimo = default fast MiMo; deepseek = DeepSeek API; hermes = local Hermes Agent API Server
 LAIN_AGENT_BACKEND=mimo
 LAIN_MIMO_MODEL=mimo-v2.5-pro
+# Leave blank unless your MiMo endpoint explicitly supports reasoning_effort.
+LAIN_MIMO_REASONING_EFFORT=
+
+DEEPSEEK_API_KEY=your_deepseek_api_key
+LAIN_DEEPSEEK_BASE_URL=https://api.deepseek.com
+LAIN_DEEPSEEK_MODEL=deepseek-v4-pro
+LAIN_DEEPSEEK_REASONING_EFFORT=high
+LAIN_DEEPSEEK_THINKING=enabled
+
 LAIN_HERMES_BASE_URL=http://127.0.0.1:8642/v1
 LAIN_HERMES_API_KEY=change-me-local-dev
 LAIN_HERMES_MODEL=hermes-agent
@@ -109,7 +118,13 @@ LAIN_HERMES_MODEL=hermes-agent
 
 | 变量 | 说明 | 示例 |
 | --- | --- | --- |
-| `XIAOMI_API_KEY` | 小米 MiMo API Key | `your_xiaomi_mimo_api_key` |
+| `XIAOMI_API_KEY` | Xiaomi MiMo API key | `your_xiaomi_mimo_api_key` |
+| `DEEPSEEK_API_KEY` | DeepSeek API key, used only after selecting DeepSeek backend | `your_deepseek_api_key` |
+| `LAIN_AGENT_BACKEND` | Advanced backend default; app startup still resets to MiMo | `mimo` / `deepseek` / `hermes` |
+| `LAIN_DEEPSEEK_MODEL` | DeepSeek chat model | `deepseek-v4-pro` |
+| `LAIN_DEEPSEEK_REASONING_EFFORT` | DeepSeek reasoning effort | `high` / `max` |
+| `LAIN_DEEPSEEK_THINKING` | DeepSeek thinking mode switch | `enabled` / `disabled` |
+| `LAIN_MIMO_REASONING_EFFORT` | Optional MiMo reasoning effort; fill only when supported by the endpoint | `high` |
 | `LAIN_STT_PROVIDER` | 语音识别提供方 | `local` / `mimo` |
 | `MIMO_ASR_MODEL` | MiMo 音频识别模型 | `mimo-v2-omni` |
 | `LAIN_MAX_TOKENS` | 单次回复最大 token 数 | `32768` |
@@ -149,10 +164,23 @@ AI_CONFIG: {
   MODEL: 'mimo-v2.5-pro',
   MAX_TOKENS: 32768,
   TEMPERATURE: 0.7,
+  REASONING_EFFORT: '',
+},
+
+DEEPSEEK_CONFIG: {
+  BASE_URL: 'https://api.deepseek.com',
+  MODEL: 'deepseek-v4-pro',
+  REASONING_EFFORT: 'high',
 }
 ```
 
 主进程通过 OpenAI SDK 的兼容接口调用 MiMo，因此只要服务端接口保持 OpenAI-compatible，模型和 Base URL 可以在这里替换。
+
+## DeepSeek backend mode
+
+Lain still starts in the fast MiMo mode by default. The main process initializes the DeepSeek OpenAI-compatible client only after you click the DeepSeek button in the main window.
+
+DeepSeek mode keeps Lain's local tool boundary: the model may return standard `tool_calls`, but files, programs, web pages, Skills, and delete confirmation are still executed by Lain's local tool system. The recommended default is `deepseek-v4-pro` with `LAIN_DEEPSEEK_THINKING=enabled` and `LAIN_DEEPSEEK_REASONING_EFFORT=high`. For harder tasks, set effort to `max`; it will usually increase latency and token usage. `LAIN_MIMO_REASONING_EFFORT` stays blank by default because MiMo should only receive `reasoning_effort` after the endpoint confirms support.
 
 ## Hermes 后端模式
 

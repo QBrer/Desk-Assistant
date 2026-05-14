@@ -195,8 +195,8 @@ function setupIPC() {
 
   ipcMain.handle(IPC_CHANNELS.AI_SET_BACKEND, async (event, backend) => {
     const normalized = String(backend || '').trim().toLowerCase();
-    if (!['mimo', 'hermes'].includes(normalized)) {
-      return { success: false, error: '无效的后端，只能选择 MiMo 或 Hermes。' };
+    if (!['mimo', 'deepseek', 'hermes'].includes(normalized)) {
+      return { success: false, error: 'Invalid backend. Use MiMo, DeepSeek, or Hermes.' };
     }
 
     if (normalized === 'hermes') {
